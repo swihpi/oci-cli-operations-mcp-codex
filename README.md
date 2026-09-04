@@ -10,7 +10,7 @@ its affiliates.
 
 ## What it is
 
-OCI CLI Operations MCP is a small local MCP server that uses **your existing
+OCI CLI Operations MCP is a local MCP server that uses **your existing
 OCI CLI profile** on **your own machine**. It gives Codex structured OCI data
 instead of requiring long, fragile command-line exchanges. It also includes two
 Codex skills:
