@@ -1,0 +1,23 @@
+name: Validate public source
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile MCP server
+        run: python3 -m py_compile scripts/oci_mcp_server.py
+      - name: Run deterministic protocol tests
+        run: python3 tests/test_protocol.py -v
+      - name: Scan public source for credentials and local identity
+        run: python3 tests/test_no_secrets.py

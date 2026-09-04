@@ -1,0 +1,24 @@
+# Local OCI credentials and configuration
+.oci/
+oci_cli_rc
+*.pem
+*.key
+*.p12
+*.wallet
+Wallet_*/
+cwallet.sso
+ewallet.p12
+
+# Local configuration and test output
+.env
+.mcp.local.json
+coverage.xml
+.coverage
+htmlcov/
+__pycache__/
+*.py[cod]
+
+# Editor and operating-system files
+.DS_Store
+.idea/
+.vscode/

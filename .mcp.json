@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "oci-tenancy": {
+      "command": "python3",
+      "args": [
+        "scripts/oci_mcp_server.py"
+      ],
+      "env": {
+        "OCI_CLI_PROFILE": "DEFAULT"
+      }
+    }
+  }
+}
