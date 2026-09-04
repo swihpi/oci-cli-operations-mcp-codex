@@ -1,4 +1,4 @@
-# OCI CLI Operations MCP for Codex
+# OCI CLI Operations MCP (Codex)
 
 > An unofficial, local-first OCI operations MCP and Codex skill set for safe
 > tenancy discovery, troubleshooting, configuration planning, verification, and
@@ -23,6 +23,13 @@ Codex skills:
 It does not host your OCI credentials, proxy your tenancy through a third
 party, or include a cloud account. Authentication remains local in the OCI CLI
 configuration you already control.
+
+### Portable core, Codex-first experience
+
+The server is a standard local stdio MCP implementation and can be adapted for
+another MCP-compatible client. This repository is named **(Codex)** because its
+packaging, skills, routing guidance, and installation path are designed for
+Codex. The OCI CLI remains the underlying universal interface.
 
 ## Why use it instead of typing OCI CLI commands all day?
 
@@ -137,6 +144,41 @@ audit, public-exposure, NSG/security-list, and gateway evidence. Findings are
 separated into confirmed facts, documented expectations, inferred risk, and
 approval-required remediation.
 
+### Investigate an OKE workload incident
+
+Combine node-pool, node, work-request, subnet, route, NSG, service-limit, and
+cluster endpoint evidence. For a cause that is not evident in the live data,
+consult the specific official OKE documentation before proposing a controlled
+node-pool, networking, or IAM remediation.
+
+### Diagnose private service connectivity
+
+Inspect the path between a workload and an Autonomous Database, Object Storage,
+API Gateway, load balancer, or private endpoint. The output can distinguish
+confirmed route/DNS/security-policy facts from assumptions and explain the
+smallest safe change to test.
+
+### Plan backup, recovery, and lifecycle work
+
+Review backup protection, retention, recovery options, maintenance context, and
+dependent resources before a database, volume, or Kubernetes lifecycle change.
+Use the documentation workflow for current service rules, then produce an
+approval-gated command and post-change verification plan.
+
+### Investigate cost, quota, and capacity blockers
+
+Gather live service-limit, region, compartment, shape, and work-request
+evidence. Then consult official limits or capacity guidance when needed and
+separate a confirmed quota problem from regional capacity, IAM, or
+configuration causes.
+
+### Review IAM and governance safely
+
+Inventory policies, dynamic groups, compartments, tags, Cloud Guard coverage,
+and audit evidence without making changes. Recommendations identify the exact
+policy or control affected and stay approval-required when they would modify
+access or governance.
+
 ### Operate any OCI service
 
 For products without a typed tool, use `oci_batch_read` for several focused
@@ -144,6 +186,58 @@ read-only CLI requests or `oci_execute_cli` for any valid OCI CLI argument
 sequence. This covers OKE, DevOps, Resource Manager, AI, analytics,
 integration, database, observability, governance, marketplace, edge, hybrid,
 and multicloud services supported by the OCI CLI.
+
+## Example: documentation-guided troubleshooting from prompt to result
+
+This is a **fictional illustration**. It shows the decision flow; none of the
+resources, findings, commands, or results below come from a real tenancy.
+
+**Prompt**
+
+> "A private application cannot connect to an Autonomous Database after a
+> network change. Inspect the live OCI evidence first. Use official Oracle
+> documentation only if it helps explain the failure. Do not change anything
+> without showing me the plan."
+
+**1. Live OCI evidence through the MCP**
+
+Codex uses read-only calls to collect the application subnet, route table, NSG
+and security-list rules, private DNS details, database private-endpoint state,
+and any relevant work requests. The fictional output identifies a missing
+egress rule from the application NSG to the database listener port; it does not
+assume that DNS or the route table is at fault.
+
+**2. Focused `docs.oracle.com` lookup**
+
+Because the conclusion affects a private endpoint and a network security
+control, the `oci-docs` skill opens the relevant current Oracle documentation
+for Autonomous Database private endpoints and network security groups. It uses
+that guidance to confirm the expected traffic direction and to check whether
+an additional service-specific rule is required.
+
+**3. Clear output and proposed action**
+
+Codex reports: "Confirmed: the destination, route, and private DNS record are
+present. Confirmed: the required egress rule is absent. Documented
+expectation: traffic to the database listener must be allowed by the applicable
+network controls." It then presents one exact CLI command to add the narrowly
+scoped NSG rule, the expected availability/security impact, and an approval
+token. At this point no cloud change has been made.
+
+**4. Action only after explicit approval**
+
+If the user approves the unchanged command and token, the MCP executes that
+specific mutation. It does not accept a substituted command, profile,
+authentication setting, endpoint, or debug override.
+
+**5. Result and verification**
+
+The MCP performs read-only follow-up checks of the NSG rule and the dependent
+resource state. Codex then reports a fictional result such as: "Rule present;
+network policy now matches the documented design. Application-level connection
+testing remains required to confirm end-to-end recovery." This avoids calling
+a configuration change successful merely because the CLI returned exit code
+zero.
 
 ## Prerequisites
 

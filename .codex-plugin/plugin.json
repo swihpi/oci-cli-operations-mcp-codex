@@ -1,16 +1,15 @@
 {
   "name": "oci-tenancy",
   "version": "0.4.0+codex.20260829161841",
-  "description": "Control a local OCI tenancy through the configured OCI CLI.",
+  "description": "A Codex-first, local OCI CLI MCP for safe operations and Oracle documentation-guided decisions.",
   "author": {
     "name": "OCI CLI Operations MCP contributors"
   },
   "skills": "./skills/",
   "interface": {
-    "displayName": "OCI Tenancy",
-    "shortDescription": "Manage your local OCI tenancy through OCI CLI.",
-    "longDescription": "Provides scoped OCI CLI MCP tools and Oracle-documentation-guided tenancy operations.",
-    "developerName": "Stefan Willems",
+    "displayName": "OCI CLI Operations MCP (Codex)",
+    "shortDescription": "Operate a local OCI tenancy with safe CLI tools and official Oracle documentation guidance.",
+    "longDescription": "A Codex-first OCI CLI MCP with scoped tools, approval-gated mutations, verification, and Oracle-documentation-guided operations.",
     "category": "Developer Tools",
     "capabilities": [
       "Read",
