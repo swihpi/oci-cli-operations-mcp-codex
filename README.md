@@ -40,8 +40,8 @@ the wrong conclusion.
 
 This MCP preserves the CLI's breadth while adding an operations layer:
 
-- compact typed inventory for tenancy, Compute, VCNs, Autonomous Database, and
-  Object Storage;
+- compact typed inventory for tenancy, Compute, VCNs, Autonomous Database, or 
+  any other OCI product/feature
 - `oci_scope_discovery` for regions, availability domains, and compartments;
 - `oci_batch_read` for up to eight focused read-only CLI requests across any
   OCI product family;
