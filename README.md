@@ -92,6 +92,39 @@ remediation order. It should state what is confirmed, such as an internet
 route or an unrestricted ingress rule, rather than presenting an assumption as
 a fact.
 
+## Redacted live-operation examples
+
+These are real interaction patterns shown with all tenancy-specific data
+redacted. They demonstrate how a natural-language request becomes a concise,
+evidence-led OCI response; they do **not** disclose a live tenancy or constitute
+a security assessment for the reader's environment.
+
+### Inspect, plan, and verify a Compute operation
+
+The first example shows a focused live VM summary. The second shows the
+separate change boundary: availability and cost impact are explained, the exact
+CLI operation is visible, and the user must confirm that exact action before
+anything can change.
+
+| Live inspection | Approval-gated operation |
+| --- | --- |
+| ![Redacted live VM inspection](assets/screenshots/vm-inspection-redacted.png) | ![Redacted approval-gated Compute mutation](assets/screenshots/approval-gated-mutation-redacted.png) |
+
+### Audit a network with evidence and prioritised findings
+
+These examples show the shape of a read-only network security review: an
+observed topology first, then findings ranked by severity with documented
+guidance and a practical remediation order. This is the same reporting model
+that supports a recurring network or security health check.
+
+| Confirmed topology | Findings and priorities |
+| --- | --- |
+| ![Redacted network-topology audit](assets/screenshots/network-topology-audit-redacted.png) | ![Redacted network-security findings](assets/screenshots/network-findings-redacted.png) |
+
+The screenshots are intentionally retained as an exact reviewed set. CI checks
+their file hashes and rejects any unreviewed binary asset; see the public-source
+scanner for the allowlist.
+
 ## How it works
 
 ```text
