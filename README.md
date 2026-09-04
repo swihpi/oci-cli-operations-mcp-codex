@@ -57,6 +57,35 @@ In short: use ordinary CLI when you want to compose a command manually. Use
 this MCP when you want Codex to investigate, explain, plan, and verify with a
 clear safety boundary.
 
+## Not read-only: controlled OCI command execution
+
+This is not merely a read-only OCI CLI viewer. Read-only discovery is the
+default because it is the right starting point for troubleshooting, inventory,
+and health checks, but the MCP can also execute valid OCI CLI mutations against
+resources that the configured local profile is authorised to manage.
+
+That includes lifecycle and configuration work such as creating, starting,
+stopping, rebooting, updating, and deleting resources across OCI services. For
+example, Codex can plan a Compute start/stop action, create or update a network
+control, change a supported service configuration, or prepare a deletion. The
+underlying OCI CLI and the profile's IAM permissions remain the final authority
+on what is possible.
+
+Mutations have a deliberate safety boundary:
+
+1. Codex presents the exact OCI CLI command, scope, and relevant availability,
+   cost, or security impact.
+2. The MCP returns an approval token bound to that unchanged command.
+3. It executes only after the user explicitly approves the exact planned
+   operation.
+4. It follows with a focused read-only verification call where a meaningful
+   verification is available.
+
+The same guard applies to potentially destructive work, including delete
+operations. The MCP does not silently turn a recommendation into a cloud
+change, and it rejects attempts to substitute the profile, CLI config,
+authentication mode, endpoint, debug setting, command, or approval token.
+
 ## What makes this operationally different
 
 This is not a hosted replacement for OCI, a static knowledge-base chatbot, or
