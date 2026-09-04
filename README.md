@@ -57,6 +57,41 @@ In short: use ordinary CLI when you want to compose a command manually. Use
 this MCP when you want Codex to investigate, explain, plan, and verify with a
 clear safety boundary.
 
+## What makes this operationally different
+
+This is not a hosted replacement for OCI, a static knowledge-base chatbot, or
+a thin natural-language wrapper around one CLI command. It is an operations
+workflow that joins three sources of evidence while keeping credentials and
+execution local:
+
+| Need | What the MCP contributes | Why it matters |
+| --- | --- | --- |
+| What exists now? | Structured, read-only OCI CLI discovery from the configured local profile. | The answer is grounded in the current tenancy rather than a generic example. |
+| What should that configuration mean? | Selective, current official `docs.oracle.com` guidance. | Troubleshooting and health findings are checked against service-specific expectations rather than relying only on model memory. |
+| What should happen next? | A human-readable finding, an exact planned command, explicit approval, and focused verification. | A recommendation does not quietly become a cloud change, and a successful command is not mistaken for a successful outcome. |
+
+The resulting output is designed for real operations: it separates **confirmed
+live facts**, **documented expectations**, **inference or risk**, and
+**approval-required remediation**. That makes it useful both when an engineer
+is diagnosing an incident interactively and when a team needs an auditable
+health-check report.
+
+### From a natural-language question to an operational answer
+
+A request such as "show my VM details in Frankfurt" can become a compact live
+summary of lifecycle state, shape, network attachment, boot-volume posture,
+and management-agent state. A follow-up such as "stop it" becomes an exact
+planned operation with availability and cost implications; it executes only
+after the user approves that same command. The MCP then verifies the resulting
+lifecycle state with a read-only follow-up request.
+
+Similarly, a request to audit a network can produce an evidence-backed
+topology and findings: public/private exposure, route and gateway context,
+security-list and NSG coverage, logging/detection controls, and a prioritised
+remediation order. It should state what is confirmed, such as an internet
+route or an unrestricted ingress rule, rather than presenting an assumption as
+a fact.
+
 ## How it works
 
 ```text
@@ -178,6 +213,32 @@ Inventory policies, dynamic groups, compartments, tags, Cloud Guard coverage,
 and audit evidence without making changes. Recommendations identify the exact
 policy or control affected and stay approval-required when they would modify
 access or governance.
+
+### Run regular tenancy health checks with an AI agent
+
+The MCP can be used as the OCI tool layer for an AI agent or a scheduled
+automation. A scheduler or agent framework supplies the cadence; the MCP
+supplies scoped, local OCI reads, documentation-aware interpretation, and the
+same no-surprise mutation boundary. Keep recurring checks read-only by default
+and route any proposed change to a human approval step.
+
+Useful recurring checks include:
+
+- **Cost hygiene:** stopped-but-billable resources, unattached volumes, idle
+  load balancers, unexpected resource growth, and service-limit signals.
+- **Security posture:** public exposure, broad ingress/egress, missing NSGs,
+  Cloud Guard and Vulnerability Scanning coverage, logging gaps, and risky IAM
+  policy changes.
+- **Identity health:** overly broad policies, unused or stale dynamic-group
+  patterns, compartment access drift, and audit-control coverage.
+- **Network health:** public endpoints, route/gateway changes, security-list
+  or NSG drift, VCN Flow Log coverage, DNS/private-endpoint context, and load
+  balancer health evidence.
+
+An agent should report the evidence collected, the documentation consulted,
+the confidence and severity of each finding, and the exact follow-up action.
+It should not apply an IAM, network, security, or cost-affecting change merely
+because a recurring check found it.
 
 ### Operate any OCI service
 
