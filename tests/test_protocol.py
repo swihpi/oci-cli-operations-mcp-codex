@@ -3,6 +3,7 @@ import json
 import os
 import pathlib
 import subprocess
+import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -13,13 +14,27 @@ FAKE = ROOT / "tests" / "fake_oci.py"
 class ProtocolTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        env = os.environ | {"OCI_CLI_BINARY": str(FAKE), "OCI_CLI_PROFILE": "DEFAULT"}
+        cls.home = tempfile.TemporaryDirectory()
+        config_dir = pathlib.Path(cls.home.name) / ".oci"
+        config_dir.mkdir()
+        (config_dir / "config").write_text(
+            "[DEFAULT]\n"
+            "tenancy=synthetic-test-tenancy\n"
+            "region=eu-frankfurt-1\n",
+            encoding="utf-8",
+        )
+        env = os.environ | {
+            "HOME": cls.home.name,
+            "OCI_CLI_BINARY": str(FAKE),
+            "OCI_CLI_PROFILE": "DEFAULT",
+        }
         cls.process = subprocess.Popen(["python3", str(SERVER)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=env)
 
     @classmethod
     def tearDownClass(cls):
         cls.process.terminate()
         cls.process.wait(timeout=5)
+        cls.home.cleanup()
 
     def request(self, method, params=None):
         self.process.stdin.write(json.dumps({"jsonrpc": "2.0", "id": method + str(id(self)), "method": method, "params": params or {}}) + "\n")
