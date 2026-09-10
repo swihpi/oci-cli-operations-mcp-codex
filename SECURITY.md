@@ -9,6 +9,9 @@ advisory feature. Include a minimal reproduction using fictional identifiers.
 Do not send credentials, wallets, or a copy of `~/.oci/config`.
 
 The project deliberately requires explicit approval before cloud-changing CLI
-commands execute. A report that can bypass that boundary, alter profile/auth
-configuration, reveal redacted values, or execute arbitrary shell commands is
-security-sensitive.
+commands execute. Approval tokens are process-local, random, exact-command
+bound, single-use, and expire after five minutes. The generic boundary rejects
+profile/auth/transport overrides, raw requests, local CLI administration, and
+arbitrary local file input/output. A report that can bypass these controls,
+replay an approval, reveal redacted values, or execute arbitrary shell commands
+is security-sensitive.

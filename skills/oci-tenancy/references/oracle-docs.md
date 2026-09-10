@@ -21,6 +21,8 @@ Use Oracle documentation as the primary source. Service offerings, feature avail
 ## Operations, governance, and architecture
 
 - [Monitoring and observability](https://docs.oracle.com/en-us/iaas/Content/cloud-adoption-framework/monitoring-and-observability.htm): metrics, logs, traces, alarms, events, and operational integration.
+- [Cost Analysis](https://docs.oracle.com/en-us/iaas/Content/Billing/Concepts/costanalysisoverview.htm): cost and usage queries, grouping, filtering, granularity, and required permissions.
+- [Usage API CLI](https://docs.oracle.com/en-us/iaas/tools/oci-cli/latest/oci_cli_docs/cmdref/usage-api.html): current cost, usage, credit, scheduled-report, and carbon-emissions command groups.
 - [Service limits](https://docs.oracle.com/en-us/iaas/Content/General/service-limits/overview.htm): tenancy limits, quotas, usage, and limit requests.
 - [Limits by service](https://docs.oracle.com/en-us/iaas/Content/General/service-limits/default.htm): current documented default-limit detail and scope per service.
 - [Manage service limits best practices](https://docs.oracle.com/en/solutions/oci-best-practices/manage-your-service-limits1.html): capacity planning, quota review, growth, and resiliency considerations.

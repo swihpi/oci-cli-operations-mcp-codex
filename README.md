@@ -45,10 +45,15 @@ This MCP preserves the CLI's breadth while adding an operations layer:
 - `oci_scope_discovery` for regions, availability domains, and compartments;
 - `oci_batch_read` for up to eight focused read-only CLI requests across any
   OCI product family;
+- typed OCI Cost/Usage queries, dimension attribution, deterministic anomaly
+  checks, budgets, service limits, quota, and resource-availability evidence;
+- tenancy-aware security, network, observability, and governance evidence
+  bundles, plus Resource Search and work-request status;
 - structured results with command, exit code, duration, stderr, parsed data,
   truncation state, and an explicit failure for misleading empty output;
 - redaction of credential-like response fields;
-- exact-command mutation planning and approval tokens;
+- exact-command mutation planning with random, single-use, five-minute approval
+  tokens;
 - focused post-change verification;
 - a documentation-aware troubleshooting workflow, rather than stale embedded
   product knowledge.
@@ -210,9 +215,45 @@ seen the planned command and explicitly approves it. The follow-up execution
 must use the same unchanged command and token.
 
 The MCP blocks attempts to override its configured profile, CLI config,
-authentication mode, endpoint, or enable debug output. It also redacts fields
-that resemble passwords, secrets, tokens, private keys, or SSH authorized
-keys.
+authentication mode, endpoint, proxy, certificate/defaults files, or enable
+debug output. It also blocks raw HTTP requests, local CLI setup/session/update
+commands, `file://` inputs, and local file input/output flags. A legitimate
+object upload or other file-backed operation therefore needs a separately
+reviewed transfer workflow rather than arbitrary MCP filesystem access.
+
+Approval tokens are random, held only by the running MCP process, bound to the
+exact unchanged argument vector, consumed once, and expire after five minutes.
+Commands and CLI error text redact password-, secret-, private-key-, and
+token-like argument values before returning evidence to the model.
+
+## FinOps and operational health coverage
+
+The MCP includes first-class read-only tools for:
+
+- OCI Cost/Usage queries across explicit time windows, including cost, usage,
+  credits, and up to four supported grouping dimensions;
+- cost attribution by service, SKU, compartment, resource, region, platform,
+  or tenant dimension;
+- deterministic cost anomaly candidates based on the latest returned daily
+  period versus the arithmetic mean of earlier periods;
+- budgets, service limits, active quotas, and supported resource availability;
+- tenancy-wide structured Resource Search;
+- security evidence covering IAM policies, Cloud Guard, Security Zones,
+  Vulnerability Scanning recipes, vaults, and Audit configuration;
+- network topology and exposure evidence covering VCNs, subnets, routes,
+  security lists, NSGs, gateways, and load balancers;
+- observability evidence covering alarms, log groups, Events rules, and
+  Notifications topics;
+- governance evidence covering budgets, quotas, tags, and resource discovery;
+- service-specific work-request status through a constrained read-only path.
+
+An evidence bundle is intentionally explicit about `complete` and `partial`
+coverage. Empty inventories are represented as successful empty lists; a failed
+or unauthorized check is not silently interpreted as a healthy tenancy.
+An approved mutation that exits successfully without a response body is marked
+`accepted_without_payload`, never falsely reported as verified. Returned work-
+request identifiers are surfaced for `oci_work_request_status` or another
+focused read-after-write verification.
 
 This is an aid, not a substitute for IAM least privilege, change management,
 backups, security review, or Oracle support. A valid approved OCI command can

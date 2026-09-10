@@ -53,5 +53,12 @@ list, gateway, DNS, load-balancer, health-check, and relevant log/metric state.
 Diagnose the traffic path as a topology rather than treating individual CLI
 outputs as independent findings.
 
+For cost and governance investigations, gather the exact Usage API time window,
+granularity, query type, currency, and grouping dimensions with the typed cost
+tools. Treat deterministic anomaly output as a comparison candidate, not proof
+of waste or a forecast. Check budgets, active quotas, service limits, tags, and
+resource ownership before proposing cost controls, and use current Oracle Cost
+Analysis and Usage API documentation for interpretation.
+
 If a document lookup fails, report the live OCI evidence and the failed source
 lookup plainly. Do not substitute stale memory or an unofficial source.
