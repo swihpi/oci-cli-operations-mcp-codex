@@ -4,20 +4,31 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
+          cache-dependency-path: console/requirements.txt
+      - name: Install console test dependencies
+        run: python3 -m pip install --requirement console/requirements.txt
       - name: Compile MCP server
         run: python3 -m py_compile scripts/oci_mcp_server.py
       - name: Run deterministic protocol tests
         run: python3 tests/test_protocol.py -v
+      - name: Run Operations Console tests
+        run: PYTHONPATH=console python3 -m unittest discover -s console/tests -p 'test_*.py' -v
       - name: Scan public source for credentials and local identity
         run: python3 tests/test_no_secrets.py

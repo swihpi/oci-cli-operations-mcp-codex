@@ -1,5 +1,9 @@
 # OCI CLI Operations MCP (Codex)
 
+[![Validate public source](https://github.com/swihpi/oci-cli-operations-mcp-codex/actions/workflows/ci.yml/badge.svg)](https://github.com/swihpi/oci-cli-operations-mcp-codex/actions/workflows/ci.yml)
+[![GitHub release](https://img.shields.io/github/v/release/swihpi/oci-cli-operations-mcp-codex)](https://github.com/swihpi/oci-cli-operations-mcp-codex/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 > An unofficial, local-first OCI operations MCP and Codex skill set for safe
 > tenancy discovery, troubleshooting, configuration planning, verification, and
 > documentation-guided decisions.
@@ -7,6 +11,22 @@
 This project is not affiliated with, endorsed by, or supported by Oracle.
 Oracle Cloud Infrastructure, OCI, and related marks belong to Oracle and/or
 its affiliates.
+
+## What's new in v0.5.0 — 2026-09-10
+
+- First-class Cost/Usage, cost-attribution, anomaly-candidate, budget, limit,
+  quota, resource-availability, Resource Search, and work-request tools.
+- Broader security, network, observability, and governance evidence bundles
+  that expose partial coverage instead of treating missing evidence as healthy.
+- A private Operations Console companion with approval-gated OCI CLI actions,
+  scheduled read-only checks, and durable PostgreSQL records for reports and
+  action lifecycles.
+- Hardened command execution, redaction, approval-token handling, validation,
+  tests, and public-source credential scanning.
+
+See [CHANGELOG.md](CHANGELOG.md) for the release history and
+[console/GAP_ANALYSIS.md](console/GAP_ANALYSIS.md) for an explicit account of
+implemented coverage, native OCI capabilities, and high-value next steps.
 
 ## What it is
 
@@ -258,6 +278,32 @@ focused read-after-write verification.
 This is an aid, not a substitute for IAM least privilege, change management,
 backups, security review, or Oracle support. A valid approved OCI command can
 still incur cost, affect availability, expose a service, or delete data.
+
+## Private Operations Console companion
+
+The `console/` directory contains an optional private web console for operators
+who want the same evidence-and-approval workflow in a dashboard. It is a
+companion to the MCP, not a public hosted service and not a replacement for the
+Oracle Cloud Console.
+
+The console provides:
+
+- authenticated tenancy discovery and a resource explorer;
+- deterministic health checks for networking, security, identity, Compute,
+  recovery, cost, and evidence coverage;
+- targeted official Oracle documentation retrieval with source metadata;
+- resource-specific Compute lifecycle controls and a constrained advanced OCI
+  CLI workspace for other service commands;
+- fresh, session-bound, single-use approvals before every state-changing
+  command, plus precondition and post-action checks where supported;
+- scheduled read-only checks, comparison with prior reports, and PostgreSQL
+  retention of completed reports and consequential action lifecycles.
+
+The browser never receives the OCI signing key and never gets an unrestricted
+shell. Generic commands that lack a service-specific verification contract are
+reported as **submitted, unverified**, even when the OCI CLI exits successfully.
+The deployment design, controls, and current boundaries are documented in
+[console/IMPLEMENTATION.md](console/IMPLEMENTATION.md).
 
 ## Use cases
 
