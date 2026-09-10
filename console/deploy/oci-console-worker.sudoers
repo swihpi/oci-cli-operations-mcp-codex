@@ -1,0 +1,2 @@
+Defaults:ociconsole !requiretty
+ociconsole ALL=(ociworker) NOPASSWD: /opt/oci-operations-console/venv/bin/python -m opsconsole.worker
