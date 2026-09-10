@@ -1,0 +1,33 @@
+[Unit]
+Description=Private OCI Operations Console
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User = ociconsole
+Group = ociconsole
+WorkingDirectory=/opt/oci-operations-console/app
+EnvironmentFile=/etc/oci-operations-console/web.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/oci-operations-console/venv/bin/gunicorn --workers 1 --worker-class gthread --threads 4 --timeout 90 --bind 127.0.0.1:8766 opsconsole.app:create_app()
+Restart=on-failure
+RestartSec=5
+UMask=0077
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/oci-operations-console
+ReadOnlyPaths=/var/lib/ociworker
+# sudo is restricted to the fixed, root-owned typed worker command.
+# NoNewPrivileges would prevent that deliberate privilege separation.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+MemoryMax=1G
+TasksMax=96
+
+[Install]
+WantedBy=multi-user.target

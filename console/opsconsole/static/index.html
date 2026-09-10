@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>OCI Operations Console</title>
+  <meta name="description" content="Private OCI resource operations, evidence-led health checks and Oracle documentation.">
+  <link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script>
+</head>
+<body>
+<a href="#main" class="skip">Skip to content</a>
+<header class="topbar">
+  <div class="brand"><span class="brand-mark" aria-hidden="true">O</span><div><strong>OCI Operations Console</strong><small>Independent console · CLI MCP companion</small></div></div>
+  <div class="top-actions"><span id="region-label">Private workspace</span><button id="theme" aria-label="Switch to dark mode">Dark mode</button><button id="logout" hidden>Sign out</button></div>
+</header>
+<div class="app-layout">
+  <aside>
+    <p class="nav-label">OPERATIONS</p>
+    <nav aria-label="Main navigation">
+      <button data-view="overview" class="active" aria-current="page"><span aria-hidden="true">▦</span> Overview</button>
+      <button data-view="resources"><span aria-hidden="true">▤</span> Resource explorer</button>
+      <button data-view="health"><span aria-hidden="true">◈</span> Health centre</button>
+      <button data-view="investigate"><span aria-hidden="true">⌕</span> Investigations</button>
+      <button data-view="actions"><span aria-hidden="true">↗</span> Action centre</button>
+      <button data-view="history"><span aria-hidden="true">◷</span> Schedules & history</button>
+    </nav>
+    <div class="sidebar-note"><strong>Evidence before action</strong><p>Live observations, official Oracle guidance, controlled changes.</p><span id="mode-badge" class="badge">Not connected</span></div>
+  </aside>
+  <main id="main" tabindex="-1">
+    <div id="notice" class="notice" role="status" hidden></div>
+    <div id="error" class="error" role="alert" hidden></div>
+    <section id="view-overview" class="view">
+      <div class="page-heading"><div><p class="eyebrow">TENANCY WORKSPACE</p><h1>Operations overview</h1><p class="subtle">Know what is running. Understand what needs attention.</p></div><button class="primary" id="scan">Run health scan</button></div>
+      <div class="scope-bar"><span id="scope">Sign in to connect your workspace</span><span id="freshness">No observations loaded</span></div>
+      <div class="stats" id="stats"></div>
+      <div class="overview-grid">
+        <section class="panel"><div class="panel-heading"><h2>Health by domain</h2><button class="link" data-go="health">View all checks →</button></div><div id="domains"></div></section>
+        <section class="panel"><div class="panel-heading"><h2>Needs your attention</h2><span class="badge warning">Review</span></div><div id="attention"></div></section>
+      </div>
+      <section class="panel"><div class="panel-heading"><h2>Resource snapshot</h2><button class="link" data-go="resources">Explore resources →</button></div><div id="recent-resources" class="table-scroll"></div></section>
+      <div class="coverage" id="coverage"></div>
+    </section>
+    <section id="view-resources" class="view" hidden>
+      <div class="page-heading"><div><p class="eyebrow">INVENTORY</p><h1>Resource explorer</h1><p class="subtle">Configuration and lifecycle evidence in the discovered scope.</p></div></div>
+      <div class="filters"><label>Search resources<input type="search" id="resource-search" placeholder="Name, type or region"></label><label>Resource type<select id="resource-kind"><option value="">All types</option></select></label></div>
+      <section class="panel table-scroll" id="resource-table"></section>
+    </section>
+    <section id="view-health" class="view" hidden>
+      <div class="page-heading"><div><p class="eyebrow">EVIDENCE & COVERAGE</p><h1>Health centre</h1><p class="subtle">Unknown and failed checks remain visible. A green lifecycle is not a healthy application.</p></div></div>
+      <div class="filters"><label>Domain<select id="health-domain"><option value="">All domains</option></select></label><label>Status<select id="health-status"><option value="">All statuses</option><option value="unhealthy">Needs attention</option><option value="healthy">Healthy observation</option><option value="unknown">Unknown</option><option value="check_failed">Check failed</option></select></label></div>
+      <div id="findings"></div>
+    </section>
+    <section id="view-investigate" class="view" hidden>
+      <div class="page-heading"><div><p class="eyebrow">ORACLE DOCUMENTATION</p><h1>Investigation workspace</h1><p class="subtle">Connect observations to focused guidance from docs.oracle.com.</p></div><span class="badge">Evidence routing · AI not configured</span></div>
+      <section class="panel investigation"><form id="investigation-form"><label for="question">What do you want to investigate?</label><textarea id="question" minlength="3" maxlength="1500" rows="3" placeholder="Review internet exposure and missing network monitoring" required></textarea><div class="form-footer"><span class="subtle">No commands or configuration changes are executed.</span><button class="primary" type="submit">Gather evidence & docs</button></div></form></section>
+      <div class="prompt-chips"><button data-prompt="Review my network security and internet exposure">Network exposure</button><button data-prompt="Review broad IAM policies and identity health">Identity health</button><button data-prompt="Review backup and restore readiness">Recovery readiness</button></div>
+      <div id="investigation-result" aria-live="polite"></div>
+    </section>
+    <section id="view-actions" class="view" hidden>
+      <div class="page-heading"><div><p class="eyebrow">PLAN → APPROVE → EXECUTE → VERIFY</p><h1>Action centre</h1><p class="subtle">Review the exact operation, impact and live resource state before approval.</p></div><span id="write-status" class="badge warning">Writes disabled</span></div>
+      <section class="panel action-layout"><div><h2>Compute lifecycle</h2><p>Start, gracefully stop, or gracefully reboot a discovered instance. The console host can be protected from self-shutdown.</p><p class="subtle">These actions have resource-specific preconditions and verification. Use the advanced workspace for broader OCI service coverage.</p></div><form id="action-form"><label>Instance<select id="action-instance" required><option value="">Select an instance</option></select></label><label>Operation<select id="action-type"><option value="START">Start</option><option value="SOFTSTOP">Gracefully stop</option><option value="SOFTRESET">Gracefully reboot</option></select></label><button class="primary" type="submit">Preview exact operation</button></form></section>
+      <section class="panel"><div class="panel-heading"><div><h2>Advanced OCI command</h2><p class="subtle">Run any normal OCI CLI service command with your administrator identity. It is never passed through a shell. Every command needs a fresh five-minute approval.</p></div><span class="badge warning">Generic results need service-specific verification</span></div><form id="generic-form"><label for="generic-command">OCI CLI command</label><textarea id="generic-command" rows="3" maxlength="8000" placeholder="oci iam region-subscription list --region eu-frankfurt-1" required></textarea><div class="form-footer"><span class="subtle">The console owns authentication, profile, endpoint and config. File inputs are deliberately blocked.</span><button class="primary" type="submit">Preview exact command</button></div></form></section>
+      <section class="panel"><div class="panel-heading"><h2>Execution history</h2><button id="refresh-jobs" class="link">Refresh</button></div><div id="action-jobs"></div></section>
+    </section>
+    <section id="view-history" class="view" hidden>
+      <div class="page-heading"><div><p class="eyebrow">CONTINUOUS OBSERVATION</p><h1>Schedules & history</h1><p class="subtle">Recurring read-only checks and a record of requested operations.</p></div></div>
+      <section class="panel"><h2>Recurring health scan</h2><form id="schedule-form" class="schedule-form"><label class="check-label"><input type="checkbox" id="schedule-enabled">Enable recurring checks</label><label>Interval (hours)<input id="schedule-hours" type="number" min="1" max="168" value="24" required></label><button type="submit" class="primary">Save schedule</button></form><p id="schedule-state" class="subtle"></p><p class="subtle">Read-only scans only. External notifications and automatic remediation are not configured.</p></section>
+      <section class="panel"><div class="panel-heading"><h2>Job history</h2><button id="refresh-history" class="link">Refresh history</button></div><div id="all-jobs"></div></section>
+      <section class="panel"><div class="panel-heading"><h2>Preserved PostgreSQL reports</h2><button id="refresh-reports" class="link">Refresh reports</button></div><div id="reports"></div></section>
+      <section class="panel"><h2>Audit trail</h2><div id="events" class="table-scroll"></div></section>
+    </section>
+    <footer>Independent OCI CLI Operations MCP companion. Not an Oracle product. <span id="footer-mode"></span></footer>
+  </main>
+</div>
+<dialog id="login-dialog"><form id="login-form"><p class="eyebrow">PRIVATE ADMINISTRATOR WORKSPACE</p><h2>Sign in to your console</h2><p>Credentials stay on the server. Your browser never receives OCI signing keys.</p><label>Password<input type="password" id="password" autocomplete="current-password" required></label><p id="login-error" role="alert"></p><button class="primary" type="submit">Sign in</button><p class="subtle" id="demo-login-hint">Use the password configured for this private deployment.</p></form></dialog>
+<dialog id="detail-dialog"><div class="dialog-heading"><h2 id="detail-title">Resource details</h2><button data-close="detail-dialog" aria-label="Close resource details">Close</button></div><pre id="detail-content"></pre></dialog>
+<dialog id="approval-dialog"><form id="approval-form"><div class="dialog-heading"><h2>Review planned operation</h2><button type="button" data-close="approval-dialog">Cancel</button></div><p id="approval-impact" class="notice"></p><pre id="approval-command"></pre><p id="approval-expiry" class="subtle"></p><label>Type EXECUTE to approve this exact operation<input id="confirmation" autocomplete="off" required pattern="EXECUTE"></label><button id="execute-button" class="danger" type="submit">Approve & execute</button><p id="approval-error" role="alert"></p></form></dialog>
+</body></html>
