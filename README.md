@@ -12,7 +12,23 @@ This project is not affiliated with, endorsed by, or supported by Oracle.
 Oracle Cloud Infrastructure, OCI, and related marks belong to Oracle and/or
 its affiliates.
 
-## What's new in v0.6.0 — 2026-09-29
+## What's new in v0.7.0 — 2026-09-30
+
+- Ask `oci_cli_help` for the command tree and options actually installed on
+  your machine before using an unfamiliar OCI service. Mutation plans now
+  preflight the command path before offering an approval token.
+- Failed or non-JSON output is never echoed as raw stdout to the model.
+  Generic calls also reject output/query overrides that could bypass
+  structured redaction, and known credential-returning operations are routed
+  to a separate reviewed workflow.
+- The resulting contract is a useful response for a permitted command:
+  structured data or an explicit CLI, permission, syntax, timeout, or safety
+  failure. It is **not** a guarantee that every OCI operation succeeds or that
+  every health question can be proven by configuration reads alone.
+
+See [CHANGELOG.md](CHANGELOG.md) for exact changes and limits.
+
+## Previous release: v0.6.0 — 2026-09-29
 
 - Added native OCI evidence for Cloud Advisor, Cloud Guard problems, host scan
   findings, and OS Management Hub. These are source observations, with missing
@@ -70,15 +86,17 @@ Codex. The OCI CLI remains the underlying universal interface.
 
 ## Why use it instead of typing OCI CLI commands all day?
 
-The OCI CLI is powerful and remains this project's universal fallback. But it
+The OCI CLI is powerful and remains this project's broad fallback, subject to
+the safety exclusions below. But it
 is verbose, its output is often far larger than the question requires, and a
 single missing scope, region, IAM permission, or lifecycle check can lead to
 the wrong conclusion.
 
 This MCP preserves the CLI's breadth while adding an operations layer:
 
-- compact typed inventory for tenancy, Compute, VCNs, Autonomous Database, or 
-  any other OCI product/feature
+- compact typed inventory for tenancy, Compute, VCNs, Autonomous Database, and
+  selected OCI products, with a generic fallback for other permitted commands;
+- `oci_cli_help` for installed command paths and option discovery;
 - `oci_scope_discovery` for regions, availability domains, and compartments;
 - `oci_batch_read` for up to eight focused read-only CLI requests across any
   OCI product family;
@@ -258,9 +276,12 @@ must use the same unchanged command and token.
 The MCP blocks attempts to override its configured profile, CLI config,
 authentication mode, endpoint, proxy, certificate/defaults files, or enable
 debug output. It also blocks raw HTTP requests, local CLI setup/session/update
-commands, `file://` inputs, and local file input/output flags. A legitimate
+commands, `file://` inputs, local file input/output flags, and generic output,
+query, or interactive overrides. Known commands that retrieve secrets or
+create one-time credentials are outside this generic path. A legitimate
 object upload or other file-backed operation therefore needs a separately
-reviewed transfer workflow rather than arbitrary MCP filesystem access.
+reviewed transfer workflow rather than arbitrary MCP filesystem access;
+credential handling needs a separately reviewed workflow too.
 
 Approval tokens are random, held only by the running MCP process, bound to the
 exact unchanged argument vector, consumed once, and expire after five minutes.
@@ -421,11 +442,13 @@ because a recurring check found it.
 
 ### Operate any OCI service
 
-For products without a typed tool, use `oci_batch_read` for several focused
-read-only CLI requests or `oci_execute_cli` for any valid OCI CLI argument
-sequence. This covers OKE, DevOps, Resource Manager, AI, analytics,
+For products without a typed tool, use `oci_cli_help` to check the installed
+command path, then `oci_batch_read` for several focused read-only CLI requests
+or `oci_execute_cli` for a permitted OCI CLI argument sequence. This reaches
+OKE, DevOps, Resource Manager, AI, analytics,
 integration, database, observability, governance, marketplace, edge, hybrid,
-and multicloud services supported by the OCI CLI.
+and multicloud services supported by the installed OCI CLI, subject to the
+safety boundary and the profile's actual permissions.
 
 ## Example: documentation-guided troubleshooting from prompt to result
 

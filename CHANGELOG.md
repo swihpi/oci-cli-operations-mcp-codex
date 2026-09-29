@@ -8,6 +8,33 @@ All notable changes to this project are documented here. The format follows
 
 No changes yet.
 
+## [0.7.0] - 2026-09-30
+
+### Added
+
+- `oci_cli_help` reads the installed CLI's root, service, group, or operation
+  help without making a tenancy API request. Operators can confirm actual
+  command paths and options before forming an unfamiliar OCI command.
+- Mutation planning checks the command path against local CLI help before
+  issuing an approval token. This is a syntax preflight, not an IAM, capacity,
+  configuration, or outcome guarantee.
+
+### Security
+
+- Failed or non-JSON CLI stdout is omitted from MCP results instead of being
+  echoed unparsed. Timeout and overflow retain only an explicit omission marker.
+- Generic calls reject output/query/interactive overrides that could bypass
+  structured redaction. Known credential-returning reads and one-time
+  credential-creation operations require a separate reviewed workflow.
+
+### Known limitations
+
+- CLI help cannot prove an option value is valid, a service is available in the
+  selected region, IAM permits access, or a planned change will succeed.
+- These controls do not make arbitrary OCI output inherently safe or establish
+  complete feature parity with every OCI product. Unknown secret-bearing
+  response shapes still require careful review before adding typed support.
+
 ## [0.6.0] - 2026-09-29
 
 ### Added
@@ -79,6 +106,7 @@ No changes yet.
   for private keys, API fingerprints, tenancy/resource identifiers, local
   identity, and unreviewed binary assets.
 
-[Unreleased]: https://github.com/swihpi/oci-cli-operations-mcp-codex/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/swihpi/oci-cli-operations-mcp-codex/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/swihpi/oci-cli-operations-mcp-codex/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/swihpi/oci-cli-operations-mcp-codex/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/swihpi/oci-cli-operations-mcp-codex/compare/52c93d0...v0.5.0
