@@ -1,6 +1,6 @@
 {
   "name": "oci-tenancy",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "A Codex-first, local OCI CLI MCP for safe operations and Oracle documentation-guided decisions.",
   "author": {
     "name": "OCI CLI Operations MCP contributors"

@@ -3,6 +3,7 @@
 
 import json
 import os
+import re
 import selectors
 import secrets
 import signal
@@ -76,6 +77,7 @@ def schema(properties=None, required=None):
 
 
 TOOLS = [
+    {"name": "oci_cli_help", "description": "Inspect the installed OCI CLI command tree and options without making an OCI API request. Supply a command path without flags, or an empty path for root help.", "inputSchema": schema({"path": {"type": "array", "maxItems": 8, "items": {"type": "string"}}})},
     {"name": "oci_tenancy_summary", "description": "Return the configured profile, tenancy OCID, configured region, and subscribed regions.", "inputSchema": schema()},
     {"name": "oci_list_compartments", "description": "List active compartments below the configured tenancy.", "inputSchema": schema()},
     {"name": "oci_compute_inventory", "description": "Return a compact Compute inventory for a compartment; defaults to the tenancy.", "inputSchema": schema({"compartment_id": {"type": "string", "description": "Compartment OCID."}})},
@@ -154,10 +156,13 @@ def normalized_oci_error(stderr, arguments):
     return details
 
 
-def run_oci(arguments, timeout_seconds=DEFAULT_TIMEOUT_SECONDS):
+def run_oci(arguments, timeout_seconds=DEFAULT_TIMEOUT_SECONDS, json_output=True):
     started = time.monotonic()
-    command = [OCI_BINARY, "--profile", PROFILE, "--output", "json", *arguments]
-    shown = [OCI_BINARY, "--profile", PROFILE, "--output", "json", *display_arguments(arguments)]
+    prefix = [OCI_BINARY, "--profile", PROFILE]
+    if json_output:
+        prefix += ["--output", "json"]
+    command = [*prefix, *arguments]
+    shown = [*prefix, *display_arguments(arguments)]
     streams = {"stdout": bytearray(), "stderr": bytearray()}
     exceeded = False
     timed_out = False
@@ -205,6 +210,13 @@ def run_oci(arguments, timeout_seconds=DEFAULT_TIMEOUT_SECONDS):
                 "oci_error": normalized_oci_error(stderr, arguments),
                 "outcome_unknown": timed_out and not is_read_only(arguments),
                 "duration_ms": round((time.monotonic() - started) * 1000)}
+    if not json_output:
+        response = {"ok": process.returncode == 0 and bool(stdout.strip()), "command": shown,
+                    "exit_code": process.returncode, "stdout": stdout if process.returncode == 0 else "",
+                    "stderr": stderr, "duration_ms": round((time.monotonic() - started) * 1000), "truncated": False}
+        if not response["ok"]:
+            response["error"] = "OCI CLI help is unavailable for this command path"
+        return response
     path = command_path(arguments)
     empty_list = process.returncode == 0 and not stdout.strip() and bool(path) and (path[-1] == "list" or path[-1].startswith("list-"))
     accepted_without_payload = process.returncode == 0 and not stdout.strip() and not is_read_only(arguments)
@@ -229,6 +241,11 @@ def run_oci(arguments, timeout_seconds=DEFAULT_TIMEOUT_SECONDS):
 
 def parsed_result(result):
     if not result["ok"]:
+        stdout = result.pop("stdout", "")
+        if stdout == "[OMITTED: incomplete CLI output]":
+            result["stdout"] = stdout
+        elif stdout:
+            result["stdout_omitted"] = True
         return result
     try:
         result["data"] = redact(json.loads(result.pop("stdout")))
@@ -237,7 +254,7 @@ def parsed_result(result):
             result["work_request_ids"] = sorted(work_request_ids)
     except json.JSONDecodeError:
         result["ok"] = False
-        result["error"] = "OCI CLI returned non-JSON output"
+        result["error"] = "OCI CLI returned non-JSON output; unparsed stdout was omitted"
     return result
 
 
@@ -361,8 +378,15 @@ def validate_arguments(arguments):
         raise ValueError("arguments exceed the configured size limit")
     if arguments[0] == "oci":
         raise ValueError("omit the leading oci executable")
+    if not re.fullmatch(r"[a-z][a-z0-9-]*", arguments[0]):
+        raise ValueError("arguments must begin with an OCI service command")
     if arguments[0] in BLOCKED_COMMAND_ROOTS:
         raise ValueError("local CLI administration, sessions, self-update, and raw HTTP requests are outside this MCP boundary")
+    if (arguments[:2] == ["secrets", "secret-bundle"] or
+            (arguments[:2] == ["compute", "instance"] and "get-windows-initial-creds" in arguments) or
+            (arguments[:2] in (["iam", "auth-token"], ["iam", "customer-secret-key"],
+                               ["iam", "smtp-credential"]) and "create" in arguments)):
+        raise ValueError("credential material may be returned by this command; use a separately reviewed credential workflow")
     if any(any(ord(ch) < 32 or ord(ch) == 127 for ch in a) for a in arguments):
         raise ValueError("arguments may not contain control characters")
     if any("file://" in a.lower() for a in arguments):
@@ -371,6 +395,9 @@ def validate_arguments(arguments):
         raise ValueError("local file input and output flags are blocked; use a separately reviewed file-transfer workflow")
     if any(a in BLOCKED_FLAGS or any(a.startswith(flag + "=") for flag in BLOCKED_FLAGS) for a in arguments):
         raise ValueError("arguments may not override profile, config, authentication, transport, defaults, or enable debug output")
+    if any(a in {"--output", "--raw-output", "--query", "--help", "-h", "-?", "-i", "--interactive", "--cli-auto-prompt"}
+           or a.startswith(("--output=", "--query=")) for a in arguments):
+        raise ValueError("output, query, and interactive overrides are blocked; the MCP requires structured JSON for safe redaction")
 
 
 def command_path(arguments):
@@ -386,6 +413,18 @@ def command_path(arguments):
 def is_read_only(arguments):
     path = command_path(arguments)
     return bool(path) and (path[-1] in READ_ONLY_OPERATIONS or path[-1].startswith(READ_ONLY_OPERATION_PREFIXES) or path in READ_ONLY_PATHS)
+
+
+def cli_help(path):
+    if not isinstance(path, list) or len(path) > 8 or any(
+            not isinstance(token, str) or not re.fullmatch(r"[a-z][a-z0-9-]*", token) for token in path):
+        return {"ok": False, "error": "path must contain at most eight OCI command words without flags or values"}
+    result = run_oci([*path, "--help"], json_output=False)
+    if result["ok"]:
+        result["help"] = result.pop("stdout")
+        result["cli_path"] = path
+        result["command_group"] = " COMMAND [ARGS]" in result["help"].splitlines()[0]
+    return result
 
 
 def text_result(payload, error=False):
@@ -412,6 +451,12 @@ def mutation_plan(arguments):
         return {"ok": False, "error": error}
     if is_read_only(arguments):
         return {"ok": True, "read_only": True, "command": ["oci", *display_arguments(arguments)], "message": "This command is read-only and needs no approval token."}
+    preflight = cli_help(list(command_path(arguments)))
+    if not preflight["ok"] or preflight.get("command_group"):
+        return {"ok": False, "command": ["oci", *display_arguments(arguments)],
+                "error": "The installed OCI CLI did not validate a complete operation path; no approval token was issued.",
+                "preflight": {"exit_code": preflight.get("exit_code"), "error": preflight.get("error"),
+                              "stderr": preflight.get("stderr", "")}}
     purge_approvals()
     if len(PENDING_APPROVALS) >= MAX_PENDING_APPROVALS:
         PENDING_APPROVALS.pop(next(iter(PENDING_APPROVALS)))
@@ -531,6 +576,9 @@ def anomaly_report(result, dimension, threshold_percent, minimum_delta):
 
 def call_tool(name, arguments):
     arguments = arguments or {}
+    if name == "oci_cli_help":
+        result = cli_help(arguments.get("path", []))
+        return text_result(result, not result["ok"])
     config = config_values()
     tenancy = config["tenancy"]
     compartment = arguments.get("compartment_id", tenancy)
@@ -777,7 +825,7 @@ def call_tool(name, arguments):
 def respond(message):
     method, request_id = message.get("method"), message.get("id")
     if method == "initialize":
-        return {"jsonrpc": "2.0", "id": request_id, "result": {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}, "serverInfo": {"name": "oci-tenancy", "version": "0.6.0"}}}
+        return {"jsonrpc": "2.0", "id": request_id, "result": {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}, "serverInfo": {"name": "oci-tenancy", "version": "0.7.0"}}}
     if method == "tools/list":
         return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": TOOLS}}
     if method == "tools/call":

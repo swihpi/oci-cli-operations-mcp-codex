@@ -51,19 +51,28 @@ DevOps, Resource Manager, serverless, messaging, Data Science, GoldenGate, or
 databases. It lists resources in one compartment, not the entire tenancy.
 For other products, or a specific resource's detail, use `oci_batch_read` or
 `oci_execute_cli` with a CLI command checked against current Oracle guidance.
+For an unfamiliar service, call `oci_cli_help` with successive command paths
+to verify the commands and options present in the installed CLI before forming
+the request. Help is local syntax evidence, not proof of IAM access, regional
+availability, or a successful operation.
 
-`oci_execute_cli` accepts OCI service CLI argument sequences without the leading
-`oci`, so it remains the fallback for every OCI service and command not covered
-above. It returns a structured response for every valid request. Read-only
+`oci_execute_cli` accepts permitted OCI service CLI argument sequences without
+the leading `oci`, so it remains a broad fallback for services not covered
+above. It returns structured data or an explicit failure for every permitted
+request. Read-only
 commands run immediately; a mutating request returns an exact approval token.
 Present its exact command and effect to the user, obtain explicit approval, then
 repeat the unchanged request with that token. Do not bypass this flow by adding
 profile, config, authentication, endpoint, or debug flags: those are deliberately
 rejected to keep the integration scoped to the configured local profile.
 Local CLI administration, sessions, self-update, raw HTTP requests, arbitrary
-file input/output, proxy overrides, and transport/configuration overrides are
-outside this boundary. Use a separately reviewed workflow when a legitimate OCI
-operation requires a local file.
+file input/output, proxy overrides, output/query/interactive overrides, and
+transport/configuration overrides are outside this boundary. Known
+credential-retrieval and one-time credential-creation operations are also
+excluded. Use a separately reviewed workflow when a legitimate OCI operation
+requires a local file or credential handling. A mutation path preflight only
+confirms local CLI syntax; continue to verify the effect after approval and
+execution.
 
 For multi-service discovery, use `oci_scope_discovery`; it is the fastest safe
 starting point for region, availability-domain, and compartment context. For a

@@ -49,10 +49,10 @@ class ProtocolTests(unittest.TestCase):
         return json.loads(result["content"][0]["text"])
 
     def test_initialization_and_tool_contract(self):
-        self.assertEqual(self.request("initialize")["result"]["serverInfo"]["version"], "0.6.0")
+        self.assertEqual(self.request("initialize")["result"]["serverInfo"]["version"], "0.7.0")
         tools = self.request("tools/list")["result"]["tools"]
         names = {tool["name"] for tool in tools}
-        self.assertTrue({"oci_tenancy_summary", "oci_compute_inventory", "oci_scope_discovery", "oci_batch_read", "oci_plan_mutation", "oci_verify_cli", "oci_execute_cli"} <= names)
+        self.assertTrue({"oci_cli_help", "oci_tenancy_summary", "oci_compute_inventory", "oci_scope_discovery", "oci_batch_read", "oci_plan_mutation", "oci_verify_cli", "oci_execute_cli"} <= names)
         self.assertTrue({"oci_cost_usage_summary", "oci_cost_usage_by_dimension", "oci_cost_anomaly_scan", "oci_budget_inventory", "oci_limits_overview", "oci_resource_availability", "oci_resource_search", "oci_security_posture", "oci_network_health", "oci_observability_inventory", "oci_governance_inventory", "oci_work_request_status"} <= names)
         self.assertTrue({"oci_native_intelligence", "oci_network_diagnostics", "oci_identity_evidence", "oci_recovery_evidence", "oci_metric_query", "oci_load_balancer_backend_health", "oci_service_inventory"} <= names)
         self.assertTrue(all(tool["inputSchema"].get("additionalProperties") is False for tool in tools))
@@ -80,18 +80,40 @@ class ProtocolTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["data"][0]["name"], "test-instance")
 
+    def test_installed_cli_help_discovery_is_safe_and_precise(self):
+        root = self.payload(self.call("oci_cli_help"))
+        self.assertTrue(root["ok"])
+        self.assertIn("Usage: oci", root["help"])
+        path = self.payload(self.call("oci_cli_help", {"path": ["compute", "instance"]}))
+        self.assertTrue(path["ok"])
+        self.assertEqual(path["cli_path"], ["compute", "instance"])
+        self.assertIn("compute instance", path["help"])
+        invalid = self.payload(self.call("oci_cli_help", {"path": ["compute", "--profile"]}))
+        self.assertFalse(invalid["ok"])
+        missing = self.payload(self.call("oci_cli_help", {"path": ["definitely-not-a-service"]}))
+        self.assertFalse(missing["ok"])
+
+    def test_mutation_path_is_preflighted_before_approval(self):
+        for command in (["definitely-not-a-service", "create"],
+                        ["compute", "instance", "start", "--instance-id", "x"],
+                        ["compute", "instance"]):
+            invalid = self.payload(self.call("oci_plan_mutation", {"arguments": command}))
+            self.assertFalse(invalid["ok"])
+            self.assertNotIn("approval_token", invalid)
+            self.assertIn("preflight", invalid)
+
     def test_sensitive_response_fields_are_redacted(self):
         payload = self.payload(self.call("oci_execute_cli", {"arguments": ["example", "resource", "list"]}))
         self.assertEqual(payload["data"]["metadata"]["ssh_authorized_keys"], "[REDACTED]")
 
     def test_mutation_requires_exact_token(self):
-        first = self.payload(self.call("oci_execute_cli", {"arguments": ["compute", "instance", "start", "--instance-id", "x"]}))
+        first = self.payload(self.call("oci_execute_cli", {"arguments": ["compute", "instance", "action", "--instance-id", "x", "--action", "START"]}))
         self.assertTrue(first["confirmation_required"])
-        wrong = self.payload(self.call("oci_execute_cli", {"arguments": ["compute", "instance", "stop", "--instance-id", "x"], "approval_token": first["approval_token"]}))
+        wrong = self.payload(self.call("oci_execute_cli", {"arguments": ["compute", "instance", "action", "--instance-id", "x", "--action", "STOP"], "approval_token": first["approval_token"]}))
         self.assertTrue(wrong["confirmation_required"])
 
     def test_approval_token_is_random_single_use_and_exact(self):
-        command = ["compute", "instance", "start", "--instance-id", "x"]
+        command = ["compute", "instance", "action", "--instance-id", "x", "--action", "START"]
         first = self.payload(self.call("oci_plan_mutation", {"arguments": command}))
         second = self.payload(self.call("oci_plan_mutation", {"arguments": command}))
         self.assertNotEqual(first["approval_token"], second["approval_token"])
@@ -123,6 +145,31 @@ class ProtocolTests(unittest.TestCase):
         for command in cases:
             payload = self.payload(self.call("oci_execute_cli", {"arguments": command}))
             self.assertFalse(payload["ok"], command)
+
+    def test_credential_returning_paths_and_output_overrides_are_rejected(self):
+        commands = [
+            ["secrets", "secret-bundle", "get", "--secret-id", "x"],
+            ["secrets", "secret-bundle", "get-secret-bundle-by-name", "--secret-name", "x"],
+            ["compute", "instance", "get-windows-initial-creds", "--instance-id", "x"],
+            ["iam", "customer-secret-key", "create", "--user-id", "x"],
+            ["iam", "smtp-credential", "create", "--user-id", "x"],
+            ["iam", "auth-token", "create", "--user-id", "x"],
+            ["compute", "instance", "list", "--output", "table"],
+            ["compute", "instance", "list", "--raw-output"],
+            ["secrets", "secret-bundle", "--region", "eu-frankfurt-1", "get", "--secret-id", "x"],
+            ["compute", "instance", "list", "--query", "data[0].secret"],
+            ["compute", "instance", "list", "--help"],
+            ["--latest-version"],
+        ]
+        for command in commands:
+            result = self.payload(self.call("oci_execute_cli", {"arguments": command}))
+            self.assertFalse(result["ok"], command)
+
+    def test_unparsed_or_failed_stdout_is_not_exposed(self):
+        for marker in ("--text-output", "--failed-stdout"):
+            result = self.payload(self.call("oci_execute_cli", {"arguments": ["iam", "region", "list", marker]}))
+            self.assertFalse(result["ok"])
+            self.assertNotIn("credential-content-that-must-not-leak", json.dumps(result))
 
     def test_read_classifier_uses_command_path_not_arbitrary_values(self):
         command = ["usage-api", "usage-summary", "request-summarized-usages", "--tenant-id", "t", "--time-usage-started", "2026-09-01", "--time-usage-ended", "2026-09-03", "--granularity", "DAILY"]
@@ -215,11 +262,11 @@ class ProtocolTests(unittest.TestCase):
         self.assertTrue(failure["oci_error"]["retryable_read"])
 
     def test_mutation_plan_and_read_only_verification(self):
-        plan = self.payload(self.call("oci_plan_mutation", {"arguments": ["compute", "instance", "stop", "--instance-id", "x"]}))
+        plan = self.payload(self.call("oci_plan_mutation", {"arguments": ["compute", "instance", "action", "--instance-id", "x", "--action", "STOP"]}))
         self.assertTrue(plan["confirmation_required"])
         verify = self.payload(self.call("oci_verify_cli", {"arguments": ["compute", "instance", "get", "--instance-id", "x"]}))
         self.assertTrue(verify["ok"])
-        rejected = self.payload(self.call("oci_verify_cli", {"arguments": ["compute", "instance", "stop", "--instance-id", "x"]}))
+        rejected = self.payload(self.call("oci_verify_cli", {"arguments": ["compute", "instance", "action", "--instance-id", "x", "--action", "STOP"]}))
         self.assertFalse(rejected["ok"])
 
     def test_cost_usage_budget_limits_and_anomaly_tools(self):

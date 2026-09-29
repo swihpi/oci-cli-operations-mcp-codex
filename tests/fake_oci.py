@@ -5,6 +5,21 @@ import sys
 import time
 
 args = sys.argv[1:]
+if "--help" in args:
+    path = args[2:-1]
+    if (path and path[0] == "definitely-not-a-service") or path in (["compute", "instance", "start"], ["compute", "instance", "stop"]):
+        print("Error: No such command.", file=sys.stderr)
+        raise SystemExit(2)
+    suffix = "[OPTIONS]" if path and path[-1] in {"action", "create", "delete", "get", "list", "terminate", "update"} else "[OPTIONS] COMMAND [ARGS]..."
+    print(f"Usage: oci {' '.join(path)} {suffix}\n\nCommands:\n  action\n  get\n  list\n")
+    raise SystemExit(0)
+if "--text-output" in args:
+    print("credential-content-that-must-not-leak")
+    raise SystemExit(0)
+if "--failed-stdout" in args:
+    print("credential-content-that-must-not-leak")
+    print("simulated CLI failure", file=sys.stderr)
+    raise SystemExit(2)
 if "--large-output" in args:
     print("x" * 2_000_000)
     raise SystemExit(0)
