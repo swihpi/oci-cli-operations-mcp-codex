@@ -3,7 +3,9 @@
 
 import json
 import os
+import selectors
 import secrets
+import signal
 import subprocess
 import sys
 import time
@@ -52,6 +54,19 @@ USAGE_DIMENSIONS = {
     "service", "skuName", "skuPartNumber", "unit", "compartmentName", "compartmentPath",
     "compartmentId", "platform", "region", "logicalAd", "resourceId", "tenantId", "tenantName",
 }
+SERVICE_FAMILIES = {
+    "containers": (("clusters", ("ce", "cluster", "list")), ("node_pools", ("ce", "node-pool", "list"))),
+    "devops": (("projects", ("devops", "project", "list")),),
+    "resource_manager": (("stacks", ("resource-manager", "stack", "list")),),
+    "serverless": (("function_applications", ("fn", "application", "list")),
+                   ("api_gateways", ("api-gateway", "gateway", "list"))),
+    "messaging": (("streams", ("streaming", "admin", "stream", "list")),
+                  ("queues", ("queue", "queue-admin", "queue", "list"))),
+    "data_science": (("projects", ("data-science", "project", "list")),),
+    "goldengate": (("deployments", ("goldengate", "deployment", "list")),),
+    "databases": (("db_systems", ("db", "system", "list")),
+                  ("autonomous_databases", ("db", "autonomous-database", "list"))),
+}
 PENDING_APPROVALS = {}
 
 
@@ -79,6 +94,13 @@ TOOLS = [
     {"name": "oci_network_health", "description": "Collect a read-only network topology and exposure evidence bundle for a compartment: VCNs, subnets, routes, security lists, NSGs, gateways, and load balancers.", "inputSchema": schema({"compartment_id": {"type": "string"}})},
     {"name": "oci_observability_inventory", "description": "Collect a read-only observability evidence bundle: alarms, log groups, event rules, and notification topics.", "inputSchema": schema({"compartment_id": {"type": "string"}})},
     {"name": "oci_governance_inventory", "description": "Collect a read-only governance evidence bundle: budgets, quotas, tag namespaces, and tenancy-wide resource-search coverage.", "inputSchema": schema({"compartment_id": {"type": "string"}})},
+    {"name": "oci_native_intelligence", "description": "Read native Cloud Advisor recommendations and resource actions, Cloud Guard problems, host scan findings, and OS Management Hub status. Partial or unauthorized sources stay visible.", "inputSchema": schema({"compartment_id": {"type": "string"}})},
+    {"name": "oci_network_diagnostics", "description": "Read DNS zones, DRGs, IPSec connections, load balancers, and log groups for a scoped network investigation. These are configuration observations, not proof of packet reachability.", "inputSchema": schema({"compartment_id": {"type": "string"}})},
+    {"name": "oci_identity_evidence", "description": "Read users, groups, dynamic groups, policies, and identity domains. This does not establish effective access or MFA state.", "inputSchema": schema()},
+    {"name": "oci_recovery_evidence", "description": "Read block and boot volume backups and backup policies in a compartment. A backup list is not a restore test.", "inputSchema": schema({"compartment_id": {"type": "string"}})},
+    {"name": "oci_metric_query", "description": "Run a scoped, read-only OCI Monitoring MQL time-series query for a known namespace and explicit UTC time window.", "inputSchema": schema({"namespace": {"type": "string"}, "query_text": {"type": "string"}, "start_time": {"type": "string"}, "end_time": {"type": "string"}, "compartment_id": {"type": "string"}}, ["namespace", "query_text", "start_time", "end_time"])},
+    {"name": "oci_load_balancer_backend_health", "description": "Get the current OCI load balancer backend-set health for a known load balancer and backend set.", "inputSchema": schema({"load_balancer_id": {"type": "string"}, "backend_set_name": {"type": "string"}}, ["load_balancer_id", "backend_set_name"])},
+    {"name": "oci_service_inventory", "description": "Inventory selected OCI product families with validated CLI list commands. This is compartment-scoped and reports each failed or unauthorized list separately.", "inputSchema": schema({"family": {"type": "string", "enum": sorted(SERVICE_FAMILIES)}, "compartment_id": {"type": "string"}}, ["family"])},
     {"name": "oci_work_request_status", "description": "Run a service-specific read-only OCI work-request get or list command and return any discovered work-request identifiers and status fields.", "inputSchema": schema({"arguments": {"type": "array", "items": {"type": "string"}}}, ["arguments"])},
     {"name": "oci_batch_read", "description": "Run up to eight independent read-only OCI CLI commands and return one structured result per command. Use it for any OCI service not covered by a typed inventory tool.", "inputSchema": schema({"commands": {"type": "array", "minItems": 1, "maxItems": 8, "items": {"type": "array", "items": {"type": "string"}}}}, ["commands"])},
     {"name": "oci_plan_mutation", "description": "Validate any OCI mutation command and return its exact approval token without executing it. Use before presenting a planned cloud change to the user.", "inputSchema": schema({"arguments": {"type": "array", "items": {"type": "string"}}}, ["arguments"])},
@@ -102,43 +124,106 @@ def config_values():
     return values
 
 
-def compact(text):
-    encoded = text.encode("utf-8", errors="replace")
-    if len(encoded) <= MAX_OUTPUT_BYTES:
-        return text, False
-    return encoded[:MAX_OUTPUT_BYTES].decode("utf-8", errors="ignore"), True
+def stop_process_group(process):
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def normalized_oci_error(stderr, arguments):
+    path = command_path(arguments)
+    details = {"service": path[0] if path else None, "operation": path[-1] if path else None}
+    opening = stderr.find("{")
+    if opening >= 0:
+        try:
+            payload, _ = json.JSONDecoder().raw_decode(stderr[opening:])
+            if isinstance(payload, dict):
+                for source, target in (("status", "http_status"), ("code", "oci_code"),
+                                       ("target_service", "target_service"), ("operation_name", "operation_name"),
+                                       ("opc-request-id", "request_id"), ("opc_request_id", "request_id")):
+                    if source in payload and isinstance(payload[source], (str, int)):
+                        details[target] = payload[source]
+        except json.JSONDecodeError:
+            pass
+    status = details.get("http_status")
+    try:
+        details["retryable_read"] = is_read_only(arguments) and int(status) in {429, 500, 502, 503, 504}
+    except (TypeError, ValueError):
+        details["retryable_read"] = False
+    return details
 
 
 def run_oci(arguments, timeout_seconds=DEFAULT_TIMEOUT_SECONDS):
     started = time.monotonic()
     command = [OCI_BINARY, "--profile", PROFILE, "--output", "json", *arguments]
+    shown = [OCI_BINARY, "--profile", PROFILE, "--output", "json", *display_arguments(arguments)]
+    streams = {"stdout": bytearray(), "stderr": bytearray()}
+    exceeded = False
+    timed_out = False
     try:
-        result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=timeout_seconds)
-    except subprocess.TimeoutExpired as exc:
-        return {"ok": False, "command": [OCI_BINARY, "--profile", PROFILE, "--output", "json", *display_arguments(arguments)], "exit_code": None,
-                "stdout": compact(redact_sensitive_text(exc.stdout or "", arguments))[0],
-                "stderr": compact(redact_sensitive_text(exc.stderr or "", arguments))[0],
-                "error": "OCI CLI timed out", "duration_ms": round((time.monotonic() - started) * 1000)}
-    stdout, stdout_truncated = compact(redact_sensitive_text(result.stdout or "", arguments))
-    stderr, stderr_truncated = compact(redact_sensitive_text(result.stderr or "", arguments))
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    except OSError as exc:
+        return {"ok": False, "command": shown, "exit_code": None, "stdout": "", "stderr": "",
+                "error": f"OCI CLI could not start: {type(exc).__name__}",
+                "duration_ms": round((time.monotonic() - started) * 1000)}
+    with selectors.DefaultSelector() as selector:
+        selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+        selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+        deadline = started + timeout_seconds
+        while selector.get_map():
+            if time.monotonic() >= deadline:
+                timed_out = True
+                stop_process_group(process)
+                break
+            for key, _ in selector.select(timeout=min(0.2, max(0, deadline - time.monotonic()))):
+                chunk = os.read(key.fileobj.fileno(), 65536)
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                    key.fileobj.close()
+                    continue
+                target = streams[key.data]
+                remaining = MAX_OUTPUT_BYTES - len(target)
+                target.extend(chunk[:remaining])
+                if len(chunk) > remaining:
+                    exceeded = True
+                    stop_process_group(process)
+                    break
+            if exceeded:
+                break
+    process.wait()
+    for pipe in (process.stdout, process.stderr):
+        if not pipe.closed:
+            pipe.close()
+    stdout = redact_sensitive_text(streams["stdout"].decode("utf-8", errors="replace"), arguments)
+    stderr = redact_sensitive_text(streams["stderr"].decode("utf-8", errors="replace"), arguments)
+    if timed_out or exceeded:
+        return {"ok": False, "command": shown, "exit_code": None,
+                "stdout": "[OMITTED: incomplete CLI output]" if stdout else "",
+                "stderr": stderr, "truncated": exceeded,
+                "error": "OCI CLI timed out" if timed_out else "OCI CLI output exceeded the configured byte limit",
+                "oci_error": normalized_oci_error(stderr, arguments),
+                "outcome_unknown": timed_out and not is_read_only(arguments),
+                "duration_ms": round((time.monotonic() - started) * 1000)}
     path = command_path(arguments)
-    empty_list = result.returncode == 0 and not stdout.strip() and bool(path) and (path[-1] == "list" or path[-1].startswith("list-"))
-    accepted_without_payload = result.returncode == 0 and not stdout.strip() and not is_read_only(arguments)
+    empty_list = process.returncode == 0 and not stdout.strip() and bool(path) and (path[-1] == "list" or path[-1].startswith("list-"))
+    accepted_without_payload = process.returncode == 0 and not stdout.strip() and not is_read_only(arguments)
     if empty_list:
         stdout = "[]"
     elif accepted_without_payload:
         stdout = "null"
-    response = {"ok": result.returncode == 0 and bool(stdout.strip()), "command": [OCI_BINARY, "--profile", PROFILE, "--output", "json", *display_arguments(arguments)], "exit_code": result.returncode, "stdout": stdout, "stderr": stderr, "duration_ms": round((time.monotonic() - started) * 1000), "truncated": stdout_truncated or stderr_truncated}
+    response = {"ok": process.returncode == 0 and bool(stdout.strip()), "command": shown, "exit_code": process.returncode, "stdout": stdout, "stderr": stderr, "duration_ms": round((time.monotonic() - started) * 1000), "truncated": False}
     if empty_list:
         response["empty"] = True
         response["message"] = "OCI CLI returned exit code 0 and no rows for this list operation."
     elif accepted_without_payload:
         response["accepted_without_payload"] = True
         response["message"] = "OCI CLI returned exit code 0 with no response body; verify the resulting cloud state with a focused read."
-    elif result.returncode == 0 and not stdout.strip():
+    elif process.returncode == 0 and not stdout.strip():
         response["error"] = "OCI CLI exited successfully but returned no stdout; result is not treated as a successful inventory."
-    elif result.returncode != 0:
+    elif process.returncode != 0:
         response["error"] = "OCI CLI command failed"
+        response["oci_error"] = normalized_oci_error(stderr, arguments)
     return response
 
 
@@ -384,6 +469,17 @@ def usage_arguments(config, arguments, group_by=None, query_type=None, granulari
     return result
 
 
+def checked_time_window(started, ended):
+    try:
+        start = datetime.fromisoformat(started.replace("Z", "+00:00"))
+        end = datetime.fromisoformat(ended.replace("Z", "+00:00"))
+    except (AttributeError, ValueError) as exc:
+        raise ValueError("start_time and end_time must be ISO 8601 timestamps") from exc
+    if start.tzinfo is None or end.tzinfo is None or start >= end:
+        raise ValueError("start_time and end_time must be timezone-aware and increasing")
+    return start, end
+
+
 def bundle(commands):
     with ThreadPoolExecutor(max_workers=min(4, len(commands))) as pool:
         futures = {label: pool.submit(run_typed, cli_args) for label, cli_args in commands.items()}
@@ -443,7 +539,10 @@ def call_tool(name, arguments):
         result.update({"profile": PROFILE, "tenancy": tenancy, "configured_region": config.get("region")})
         return text_result(result, not result["ok"])
     if name == "oci_list_compartments":
-        result = run_typed(["iam", "compartment", "list", "--compartment-id", tenancy, "--all"])
+        result = run_typed(["iam", "compartment", "list", "--compartment-id", tenancy,
+                            "--compartment-id-in-subtree", "true", "--access-level", "ACCESSIBLE", "--all"])
+        result["scope"] = {"root": tenancy, "subtree": True, "access_level": "ACCESSIBLE"}
+        result["visible_compartments"] = len(extract_items(result)) if result["ok"] else None
     elif name == "oci_compute_inventory":
         result = run_typed(["compute", "instance", "list", "--compartment-id", compartment, "--all", "--query", 'data[].{id:id,name:"display-name",state:"lifecycle-state",shape:shape,region:region,availability_domain:"availability-domain",compartment_id:"compartment-id"}'])
     elif name == "oci_network_inventory":
@@ -503,6 +602,12 @@ def call_tool(name, arguments):
         if not isinstance(query_text, str) or not 3 <= len(query_text) <= 4000 or not isinstance(limit, int) or not 1 <= limit <= 1000:
             return text_result({"ok": False, "error": "query_text must be 3-4000 characters and limit 1-1000"}, True)
         result = run_typed(["search", "resource", "structured-search", "--query-text", query_text, "--limit", str(limit)])
+        if result["ok"]:
+            count = len(extract_items(result))
+            result["coverage"] = {"returned_items": count, "requested_limit": limit,
+                                  "possibly_more": count >= limit,
+                                  "complete": None,
+                                  "message": "The OCI CLI response does not expose a continuation token here; treat the limit as a coverage bound."}
     elif name == "oci_security_posture":
         result = bundle({
             "iam_policies": ["iam", "policy", "list", "--compartment-id", compartment, "--all"],
@@ -538,6 +643,77 @@ def call_tool(name, arguments):
             "tag_namespaces": ["iam", "tag-namespace", "list", "--compartment-id", compartment, "--include-subcompartments", "true", "--all"],
             "resources": ["search", "resource", "structured-search", "--query-text", "query all resources", "--limit", "1000"],
         })
+    elif name == "oci_native_intelligence":
+        advisor_scope = ["--compartment-id", compartment, "--compartment-id-in-subtree",
+                         "true" if compartment == tenancy else "false", "--all"]
+        guard_scope = ["--compartment-id", compartment, "--all"]
+        if compartment == tenancy:
+            guard_scope += ["--compartment-id-in-subtree", "true", "--access-level", "ACCESSIBLE"]
+        result = bundle({
+            "cloud_advisor_recommendations": ["optimizer", "recommendation-summary", "list", *advisor_scope],
+            "cloud_advisor_resource_actions": ["optimizer", "resource-action-summary", "list", *advisor_scope],
+            "cloud_guard_problems": ["cloud-guard", "problem", "list", *guard_scope],
+            "host_scan_findings": ["vulnerability-scanning", "host", "scan", "result", "agent", "list", "--compartment-id", compartment, "--all"],
+            "os_management_hub_instances": ["os-management-hub", "managed-instance", "list", "--compartment-id", compartment, "--all"],
+        })
+        result["scope"] = {"compartment_id": compartment, "advisor_and_cloud_guard_subtree": compartment == tenancy,
+                           "other_sources_subtree": False}
+        result["limitations"] = ["Native Cost Anomaly Detection is not exposed by the validated installed OCI CLI; use the deterministic Usage API anomaly tool separately.",
+                                 "An empty or unauthorized source is not evidence that the tenancy is healthy."]
+    elif name == "oci_network_diagnostics":
+        result = bundle({
+            "dns_zones": ["dns", "zone", "list", "--compartment-id", compartment, "--all"],
+            "drgs": ["network", "drg", "list", "--compartment-id", compartment, "--all"],
+            "ipsec_connections": ["network", "ip-sec-connection", "list", "--compartment-id", compartment, "--all"],
+            "load_balancers": ["lb", "load-balancer", "list", "--compartment-id", compartment, "--all"],
+            "log_groups": ["logging", "log-group", "list", "--compartment-id", compartment, "--all"],
+        })
+        result["scope"] = {"compartment_id": compartment, "subtree": False}
+        result["limitations"] = ["These reads describe configured resources. They do not prove DNS resolution, packet delivery, backend health, or application reachability.",
+                                 "Log groups alone do not establish that VCN Flow Logs are enabled."]
+    elif name == "oci_identity_evidence":
+        result = bundle({
+            "users": ["iam", "user", "list", "--compartment-id", tenancy, "--all"],
+            "groups": ["iam", "group", "list", "--compartment-id", tenancy, "--all"],
+            "dynamic_groups": ["iam", "dynamic-group", "list", "--compartment-id", tenancy, "--all"],
+            "policies": ["iam", "policy", "list", "--compartment-id", tenancy, "--all"],
+            "identity_domains": ["iam", "domain", "list", "--compartment-id", tenancy, "--all"],
+        })
+        result["scope"] = {"tenancy": tenancy, "subcompartment_policies_included": False}
+        result["limitations"] = ["This inventory does not establish effective permissions, group membership, identity-domain MFA, or credential age."]
+    elif name == "oci_recovery_evidence":
+        result = bundle({
+            "block_volume_backups": ["bv", "backup", "list", "--compartment-id", compartment, "--all"],
+            "boot_volume_backups": ["bv", "boot-volume-backup", "list", "--compartment-id", compartment, "--all"],
+            "backup_policies": ["bv", "volume-backup-policy", "list", "--compartment-id", compartment, "--all"],
+        })
+        result["scope"] = {"compartment_id": compartment, "subtree": False}
+        result["limitations"] = ["Policy assignments, database backups, cross-region replicas, and restore-test outcomes require resource-specific follow-up.",
+                                 "Backup existence alone does not prove recovery readiness."]
+    elif name == "oci_metric_query":
+        namespace, query = arguments.get("namespace"), arguments.get("query_text")
+        if not isinstance(namespace, str) or not 1 <= len(namespace) <= 128 or not isinstance(query, str) or not 3 <= len(query) <= 2000:
+            return text_result({"ok": False, "error": "namespace must be 1-128 characters and query_text 3-2000 characters"}, True)
+        checked_time_window(arguments.get("start_time"), arguments.get("end_time"))
+        result = run_typed(["monitoring", "metric-data", "summarize-metrics-data", "--compartment-id", compartment,
+                            "--namespace", namespace, "--query-text", query,
+                            "--start-time", arguments["start_time"], "--end-time", arguments["end_time"]])
+        result["scope"] = {"compartment_id": compartment, "subtree": False, "namespace": namespace,
+                           "start_time": arguments["start_time"], "end_time": arguments["end_time"]}
+        result["limitations"] = ["Only metrics emitted to OCI Monitoring are visible; missing guest or application metrics remain unknown."]
+    elif name == "oci_load_balancer_backend_health":
+        load_balancer_id, backend_set_name = arguments.get("load_balancer_id"), arguments.get("backend_set_name")
+        if not all(isinstance(value, str) and 1 <= len(value) <= 512 for value in (load_balancer_id, backend_set_name)):
+            return text_result({"ok": False, "error": "load_balancer_id and backend_set_name are required"}, True)
+        result = run_typed(["lb", "backend-set-health", "get", "--load-balancer-id", load_balancer_id,
+                            "--backend-set-name", backend_set_name])
+    elif name == "oci_service_inventory":
+        family = arguments.get("family")
+        if family not in SERVICE_FAMILIES:
+            return text_result({"ok": False, "error": "unsupported inventory family"}, True)
+        result = bundle({label: [*path, "--compartment-id", compartment, "--all"]
+                         for label, path in SERVICE_FAMILIES[family]})
+        result["scope"] = {"family": family, "compartment_id": compartment, "subtree": False}
     elif name == "oci_work_request_status":
         cli_args = arguments.get("arguments")
         error = validation_error(cli_args, read_only=True)
@@ -549,20 +725,28 @@ def call_tool(name, arguments):
         commands = {
             "regions": ["iam", "region", "list"],
             "availability_domains": ["iam", "availability-domain", "list", "--compartment-id", tenancy],
-            "compartments": ["iam", "compartment", "list", "--compartment-id", tenancy, "--all"],
+            "compartments": ["iam", "compartment", "list", "--compartment-id", tenancy,
+                             "--compartment-id-in-subtree", "true", "--access-level", "ACCESSIBLE", "--all"],
         }
         entries = {label: run_typed(command) for label, command in commands.items()}
-        result = {"ok": all(entry["ok"] for entry in entries.values()), "profile": PROFILE,
-                  "tenancy": tenancy, "configured_region": config.get("region"), "results": entries}
+        complete = all(entry["ok"] for entry in entries.values())
+        result = {"ok": complete, "complete": complete, "partial": not complete, "profile": PROFILE,
+                  "tenancy": tenancy, "configured_region": config.get("region"), "results": entries,
+                  "compartment_scope": {"subtree": True, "access_level": "ACCESSIBLE",
+                                        "visible_compartments": len(extract_items(entries["compartments"])) if entries["compartments"]["ok"] else None}}
     elif name == "oci_batch_read":
         commands = arguments.get("commands")
         if not isinstance(commands, list) or not 1 <= len(commands) <= 8:
             return text_result({"ok": False, "error": "commands must contain between 1 and 8 OCI argument arrays"}, True)
-        entries = []
-        for cli_args in commands:
-            error = validation_error(cli_args, read_only=True)
-            entries.append({"arguments": cli_args, "ok": False, "error": error} if error else run_typed(cli_args))
-        result = {"ok": all(entry["ok"] for entry in entries), "results": entries}
+        checked = [(cli_args, validation_error(cli_args, read_only=True)) for cli_args in commands]
+        with ThreadPoolExecutor(max_workers=min(4, len(commands))) as pool:
+            futures = [pool.submit(run_typed, cli_args) if not error else None
+                       for cli_args, error in checked]
+            entries = [{"arguments": display_arguments(cli_args), "ok": False, "error": error}
+                       if error else future.result()
+                       for (cli_args, error), future in zip(checked, futures)]
+        result = {"ok": all(entry["ok"] for entry in entries), "complete": all(entry["ok"] for entry in entries),
+                  "partial": not all(entry["ok"] for entry in entries), "results": entries}
     elif name == "oci_plan_mutation":
         result = mutation_plan(arguments.get("arguments"))
     elif name == "oci_verify_cli":
@@ -593,7 +777,7 @@ def call_tool(name, arguments):
 def respond(message):
     method, request_id = message.get("method"), message.get("id")
     if method == "initialize":
-        return {"jsonrpc": "2.0", "id": request_id, "result": {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}, "serverInfo": {"name": "oci-tenancy", "version": "0.5.0"}}}
+        return {"jsonrpc": "2.0", "id": request_id, "result": {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}, "serverInfo": {"name": "oci-tenancy", "version": "0.6.0"}}}
     if method == "tools/list":
         return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": TOOLS}}
     if method == "tools/call":

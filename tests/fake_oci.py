@@ -5,10 +5,18 @@ import sys
 import time
 
 args = sys.argv[1:]
+if "--large-output" in args:
+    print("x" * 2_000_000)
+    raise SystemExit(0)
+if "--delay" in args:
+    time.sleep(0.5)
 if "empty-success" in args or "--empty-success" in args:
     raise SystemExit(0)
 if "failure" in args:
     print("simulated OCI error", file=sys.stderr)
+    raise SystemExit(2)
+if "--service-error" in args:
+    print('ServiceError: {"status": 429, "code": "TooManyRequests", "target_service": "compute", "opc-request-id": "test-request-id"}', file=sys.stderr)
     raise SystemExit(2)
 if "echo-secret-error" in args:
     secret_index = args.index("--admin-password") + 1

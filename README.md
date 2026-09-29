@@ -12,7 +12,24 @@ This project is not affiliated with, endorsed by, or supported by Oracle.
 Oracle Cloud Infrastructure, OCI, and related marks belong to Oracle and/or
 its affiliates.
 
-## What's new in v0.5.0 — 2026-09-10
+## What's new in v0.6.0 — 2026-09-29
+
+- Added native OCI evidence for Cloud Advisor, Cloud Guard problems, host scan
+  findings, and OS Management Hub. These are source observations, with missing
+  permissions and partial coverage shown explicitly.
+- Added network, identity, recovery, Monitoring metrics, and load-balancer
+  backend health tools for focused troubleshooting and health checks.
+- Added a service-family inventory tool for Containers, DevOps, Resource
+  Manager, serverless, messaging, Data Science, GoldenGate, and databases.
+- Made compartment subtree discovery explicit, ran independent read batches
+  concurrently, bounded CLI output during execution, and normalized OCI errors.
+- Clarified what each health signal can establish. For example, network
+  configuration is distinct from observed connectivity, and a backup is
+  distinct from a tested restore.
+
+See [CHANGELOG.md](CHANGELOG.md) for the detailed changes and limitations.
+
+## Previous release: v0.5.0 — 2026-09-10
 
 - First-class Cost/Usage, cost-attribution, anomaly-candidate, budget, limit,
   quota, resource-availability, Resource Search, and work-request tools.
@@ -69,8 +86,12 @@ This MCP preserves the CLI's breadth while adding an operations layer:
   checks, budgets, service limits, quota, and resource-availability evidence;
 - tenancy-aware security, network, observability, and governance evidence
   bundles, plus Resource Search and work-request status;
+- native Cloud Advisor, Cloud Guard, host-scan, and OS Management Hub evidence;
+- focused DNS/DRG/IPSec and identity/recovery inventories, OCI Monitoring MQL
+  queries, and load-balancer backend health;
 - structured results with command, exit code, duration, stderr, parsed data,
-  truncation state, and an explicit failure for misleading empty output;
+  bounded output, OCI service-error fields when available, and explicit
+  failures for misleading empty output;
 - redaction of credential-like response fields;
 - exact-command mutation planning with random, single-use, five-minute approval
   tokens;
@@ -363,6 +384,15 @@ and audit evidence without making changes. Recommendations identify the exact
 policy or control affected and stay approval-required when they would modify
 access or governance.
 
+### Correlate native OCI recommendations with current state
+
+Ask for Cloud Advisor recommendations, Cloud Guard problems, host scan
+findings, and OS Management Hub status in one read-only investigation. The MCP
+returns each source separately and marks a failed or unauthorized source as
+partial coverage. Codex can then inspect the affected resources and current
+Oracle guidance before proposing an action. OCI's own recommendation engines
+remain the source of those signals.
+
 ### Run regular tenancy health checks with an AI agent
 
 The MCP can be used as the OCI tool layer for an AI agent or a scheduled
@@ -485,6 +515,10 @@ Troubleshoot why this OKE node pool cannot create nodes. Inspect the live OCI st
 
 Perform a read-only security health check for my Frankfurt compartment. Separate confirmed findings from recommendations and do not change anything.
 
+Show Cloud Advisor recommendations alongside Cloud Guard and host-scan findings. Tell me which OCI sources were unavailable.
+
+Query OCI Monitoring for the last hour of CPU utilization in this compartment, then distinguish missing metrics from a healthy CPU trend.
+
 Plan, but do not execute, a change to stop instance INSTANCE_OCID_REDACTED. Explain availability and cost implications, then wait for approval.
 ```
 
@@ -500,7 +534,15 @@ python3 tests/test_no_secrets.py
 
 The tests cover structured tool contracts, typed inventory, batch reads,
 mutation approval binding, read-only verification, sensitive-field redaction,
-blocked configuration overrides, and misleading empty OCI CLI output.
+blocked configuration overrides, bounded subprocess output, and misleading
+empty OCI CLI output. The Operations Console suite runs separately with
+`PYTHONPATH=console python3 -m unittest discover -s console/tests` after its
+pinned dependencies are installed.
+
+For an opt-in live read-only check of the installed CLI profile, run
+`python3 tests/live_v06_smoke.py`. It prints status and sanitized error codes,
+not tenancy payloads. A partial result means one or more OCI sources could not
+be read; it is not a clean health result.
 
 ## Contributing and security
 

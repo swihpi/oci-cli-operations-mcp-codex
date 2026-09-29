@@ -35,6 +35,23 @@ incomplete and must be reported. Use `oci_resource_search` for tenancy-wide
 resource discovery and `oci_work_request_status` for service-specific
 asynchronous operation evidence.
 
+For native recommendations and findings, use `oci_native_intelligence` to
+gather Cloud Advisor, Cloud Guard, host-scan, and OS Management Hub observations.
+Use `oci_network_diagnostics` for DNS, DRG, IPSec, load-balancer, and log-group
+context, then `oci_load_balancer_backend_health` for a known backend set. Use
+`oci_identity_evidence` for IAM inventory and `oci_recovery_evidence` for
+volume-backup inventory. Use `oci_metric_query` only with a documented OCI
+Monitoring namespace, MQL expression, and explicit time window. These are
+scoped evidence tools: no single bundle proves connectivity, effective IAM
+permissions, MFA, recovery readiness, or guest performance. Inspect each
+tool's `complete`, `partial`, `scope`, and `limitations` fields.
+
+For selected OCI product families use `oci_service_inventory`: Containers,
+DevOps, Resource Manager, serverless, messaging, Data Science, GoldenGate, or
+databases. It lists resources in one compartment, not the entire tenancy.
+For other products, or a specific resource's detail, use `oci_batch_read` or
+`oci_execute_cli` with a CLI command checked against current Oracle guidance.
+
 `oci_execute_cli` accepts OCI service CLI argument sequences without the leading
 `oci`, so it remains the fallback for every OCI service and command not covered
 above. It returns a structured response for every valid request. Read-only
