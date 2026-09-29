@@ -4,6 +4,7 @@ import os
 import pathlib
 import subprocess
 import tempfile
+import time
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -48,10 +49,12 @@ class ProtocolTests(unittest.TestCase):
         return json.loads(result["content"][0]["text"])
 
     def test_initialization_and_tool_contract(self):
+        self.assertEqual(self.request("initialize")["result"]["serverInfo"]["version"], "0.6.0")
         tools = self.request("tools/list")["result"]["tools"]
         names = {tool["name"] for tool in tools}
         self.assertTrue({"oci_tenancy_summary", "oci_compute_inventory", "oci_scope_discovery", "oci_batch_read", "oci_plan_mutation", "oci_verify_cli", "oci_execute_cli"} <= names)
         self.assertTrue({"oci_cost_usage_summary", "oci_cost_usage_by_dimension", "oci_cost_anomaly_scan", "oci_budget_inventory", "oci_limits_overview", "oci_resource_availability", "oci_resource_search", "oci_security_posture", "oci_network_health", "oci_observability_inventory", "oci_governance_inventory", "oci_work_request_status"} <= names)
+        self.assertTrue({"oci_native_intelligence", "oci_network_diagnostics", "oci_identity_evidence", "oci_recovery_evidence", "oci_metric_query", "oci_load_balancer_backend_health", "oci_service_inventory"} <= names)
         self.assertTrue(all(tool["inputSchema"].get("additionalProperties") is False for tool in tools))
 
     def test_server_enforces_tool_contract_not_only_advertises_it(self):
@@ -152,7 +155,8 @@ class ProtocolTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"], "OCI CLI timed out")
         self.assertNotIn("do-not-echo", json.dumps(result))
-        self.assertIn("[REDACTED]", result["stdout"])
+        self.assertIn("OMITTED", result["stdout"])
+        self.assertTrue(result["outcome_unknown"])
 
     def test_empty_stdout_is_an_error_not_a_false_success(self):
         payload = self.payload(self.call("oci_execute_cli", {"arguments": ["iam", "region", "get", "--empty-success"]}))
@@ -178,9 +182,37 @@ class ProtocolTests(unittest.TestCase):
         scope = self.payload(self.call("oci_scope_discovery"))
         self.assertTrue(scope["ok"])
         self.assertEqual(set(scope["results"]), {"regions", "availability_domains", "compartments"})
+        self.assertTrue(scope["compartment_scope"]["subtree"])
+        self.assertIn("--compartment-id-in-subtree", scope["results"]["compartments"]["command"])
         batch = self.payload(self.call("oci_batch_read", {"commands": [["compute", "instance", "list"], ["network", "vcn", "list"]]}))
         self.assertTrue(batch["ok"])
         self.assertEqual(len(batch["results"]), 2)
+
+    def test_batch_read_is_parallel_ordered_and_partial_on_failure(self):
+        commands = [["compute", "instance", "list", "--delay", str(index)] for index in range(4)]
+        started = time.monotonic()
+        batch = self.payload(self.call("oci_batch_read", {"commands": commands}))
+        self.assertLess(time.monotonic() - started, 1.7)
+        self.assertEqual(len(batch["results"]), 4)
+        self.assertTrue(batch["complete"])
+        self.assertEqual([entry["command"][-1] for entry in batch["results"]], ["0", "1", "2", "3"])
+        partial = self.payload(self.call("oci_batch_read", {"commands": [["iam", "region", "list"], ["iam", "region", "get", "failure"]]}))
+        self.assertFalse(partial["ok"])
+        self.assertTrue(partial["partial"])
+
+    def test_large_cli_output_is_stopped_with_explicit_error(self):
+        result = self.payload(self.call("oci_execute_cli", {"arguments": ["iam", "region", "list", "--large-output"]}))
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["truncated"])
+        self.assertIn("byte limit", result["error"])
+        self.assertLessEqual(len(result["stdout"].encode("utf-8")), 1_000_000)
+
+    def test_service_error_is_normalized_without_retrying_mutation(self):
+        failure = self.payload(self.call("oci_execute_cli", {"arguments": ["compute", "instance", "get", "--service-error"]}))
+        self.assertFalse(failure["ok"])
+        self.assertEqual(failure["oci_error"]["http_status"], 429)
+        self.assertEqual(failure["oci_error"]["oci_code"], "TooManyRequests")
+        self.assertTrue(failure["oci_error"]["retryable_read"])
 
     def test_mutation_plan_and_read_only_verification(self):
         plan = self.payload(self.call("oci_plan_mutation", {"arguments": ["compute", "instance", "stop", "--instance-id", "x"]}))
@@ -221,6 +253,26 @@ class ProtocolTests(unittest.TestCase):
         work = self.payload(self.call("oci_work_request_status", {"arguments": ["compute", "work-request", "get", "--work-request-id", "wr-test"]}))
         self.assertEqual(work["data"]["data"]["status"], "SUCCEEDED")
         self.assertEqual(work["work_request_ids"], ["wr-test"])
+
+    def test_native_evidence_and_metric_tools(self):
+        for name in ("oci_native_intelligence", "oci_network_diagnostics", "oci_identity_evidence", "oci_recovery_evidence"):
+            result = self.payload(self.call(name))
+            self.assertTrue(result["complete"], name)
+            self.assertIn("limitations", result, name)
+        metrics = self.payload(self.call("oci_metric_query", {"namespace": "oci_computeagent", "query_text": "CpuUtilization[1m].mean()",
+                                                              "start_time": "2026-09-28T00:00:00Z", "end_time": "2026-09-28T01:00:00Z"}))
+        self.assertTrue(metrics["ok"])
+        self.assertIn("--query-text", metrics["command"])
+        invalid = self.payload(self.call("oci_metric_query", {"namespace": "oci_computeagent", "query_text": "CpuUtilization[1m].mean()",
+                                                              "start_time": "2026-09-28", "end_time": "2026-09-27"}))
+        self.assertFalse(invalid["ok"])
+        health = self.payload(self.call("oci_load_balancer_backend_health", {"load_balancer_id": "lb-test", "backend_set_name": "web"}))
+        self.assertTrue(health["ok"])
+        family = self.payload(self.call("oci_service_inventory", {"family": "containers"}))
+        self.assertTrue(family["complete"])
+        self.assertEqual(set(family["results"]), {"clusters", "node_pools"})
+        search = self.payload(self.call("oci_resource_search", {"query_text": "query all resources", "limit": 1}))
+        self.assertIsNone(search["coverage"]["complete"])
 
 
 if __name__ == "__main__":

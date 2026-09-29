@@ -8,6 +8,40 @@ All notable changes to this project are documented here. The format follows
 
 No changes yet.
 
+## [0.6.0] - 2026-09-29
+
+### Added
+
+- Read-only native intelligence bundle for Cloud Advisor recommendations and
+  resource actions, Cloud Guard problems, Vulnerability Scanning host results,
+  and OS Management Hub managed-instance status.
+- Focused network diagnostics, identity evidence, block/boot-volume recovery
+  evidence, Monitoring MQL time-series queries, and load-balancer backend health.
+- Compartment-scoped inventories for Containers, DevOps, Resource Manager,
+  Functions/API Gateway, Streaming/Queue, Data Science, GoldenGate, and
+  database services, with all command paths checked against the installed CLI.
+- Explicit scope and limitation notes on the new evidence tools, resource-search
+  coverage bounds, and normalized OCI service error fields when available.
+
+### Changed
+
+- Compartment discovery now requests the accessible tenancy subtree explicitly.
+- Batch reads now run up to four CLI commands concurrently while retaining
+  request order and partial-failure reporting.
+- CLI output is bounded while the process runs; timeout and output overflow
+  terminate its process group. A timed-out mutation reports an unknown outcome
+  that requires read-only verification before retrying.
+
+### Known limitations
+
+- Native OCI Cost Anomaly Detection is not exposed by the validated installed
+  CLI version. The existing Usage API anomaly tool remains a deterministic
+  comparison, not a substitute for Oracle's native detector.
+- Identity inventory does not establish effective access or MFA; backup
+  inventory does not establish restore readiness; network configuration reads
+  do not prove packet reachability. Partial and unauthorized reads remain
+  visible in tool results.
+
 ## [0.5.0] - 2026-09-10
 
 ### Added
@@ -45,5 +79,6 @@ No changes yet.
   for private keys, API fingerprints, tenancy/resource identifiers, local
   identity, and unreviewed binary assets.
 
-[Unreleased]: https://github.com/swihpi/oci-cli-operations-mcp-codex/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/swihpi/oci-cli-operations-mcp-codex/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/swihpi/oci-cli-operations-mcp-codex/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/swihpi/oci-cli-operations-mcp-codex/compare/52c93d0...v0.5.0

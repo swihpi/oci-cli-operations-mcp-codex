@@ -37,15 +37,23 @@ Sources: [Cloud Advisor](https://docs.oracle.com/en-us/iaas/Content/CloudAdvisor
 - PostgreSQL retention for every completed report, planned/approved action and
   result. Action and report JSON include a report checksum.
 
+The v0.6.0 MCP now exposes additional read-only Cloud Advisor, Cloud Guard,
+host-scan, OS Management Hub, network, IAM, backup, Monitoring, and selected
+service-family evidence. These MCP tools are not yet wired into this private
+console's scheduled reports or PostgreSQL archive. The console's short-lived
+sessions, job state, events, settings, and documentation cache remain in SQLite;
+completed reports and action audits are archived in PostgreSQL.
+
 ## High-value remaining integrations
 
 These are intentionally visible as coverage gaps instead of being claimed as
 complete:
 
-1. **Native recommendation ingestion:** Cloud Advisor, Cost Anomaly Detection,
-   Cloud Guard, Vulnerability Scanning, Security Zones, budgets, limits and
-   work requests. This is the highest-value next slice because it reuses OCI
-   intelligence and explains it in resource context.
+1. **Console correlation of native recommendations:** wire the new MCP Cloud
+   Advisor, Cloud Guard, host-scan, OS Management Hub, budgets, limits, and work
+   request evidence into reports with resource, owner, and change context.
+   Native Cost Anomaly Detection is not available through the validated local
+   CLI; the Usage API comparison is labelled separately.
 2. **Network incident truth:** DNS, load balancer/backend health, VCN flow logs,
    Network Path Analyzer and optional authenticated endpoint probes. Label
    configuration permission separately from observed connectivity.

@@ -4,6 +4,7 @@
 from pathlib import Path
 import hashlib
 import re
+import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,8 +28,13 @@ PATTERNS = {
 
 
 def candidate_files():
-    for path in ROOT.rglob("*"):
-        if not path.is_file() or ".git" in path.parts or "__pycache__" in path.parts or path.suffix == ".pyc":
+    listed = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+                            cwd=ROOT, capture_output=True, check=True)
+    for name in listed.stdout.split(b"\0"):
+        if not name:
+            continue
+        path = ROOT / name.decode("utf-8")
+        if not path.is_file():
             continue
         relative = path.relative_to(ROOT)
         if relative in EXCLUDED:
