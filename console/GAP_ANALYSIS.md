@@ -44,6 +44,11 @@ console's scheduled reports or PostgreSQL archive. The console's short-lived
 sessions, job state, events, settings, and documentation cache remain in SQLite;
 completed reports and action audits are archived in PostgreSQL.
 
+The v0.8.0 MCP additionally exposes evidence provenance, a bounded OCI Audit
+change timeline, three reviewed documentation-backed checks, and explicit
+outcome assertions. These capabilities are available to MCP clients but are not
+yet persisted or rendered as first-class Operations Console report sections.
+
 ## High-value remaining integrations
 
 These are intentionally visible as coverage gaps instead of being claimed as

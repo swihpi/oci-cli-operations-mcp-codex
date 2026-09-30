@@ -12,7 +12,24 @@ This project is not affiliated with, endorsed by, or supported by Oracle.
 Oracle Cloud Infrastructure, OCI, and related marks belong to Oracle and/or
 its affiliates.
 
-## What's new in v0.7.1 — 2026-09-30
+## What's new in v0.8.0 — 2026-09-30
+
+- Every typed live OCI read now carries an evidence envelope with provenance,
+  observation time, redacted command, profile, and completeness.
+- `oci_change_timeline` correlates a bounded OCI Audit window with an optional
+  resource while stating clearly that temporal proximity is not causation.
+- `oci_documented_checks` runs a deliberately small, reviewed set of live
+  checks tied to official Oracle guidance. It separates live evidence from the
+  guidance and returns `passed`, `review_required`, or `unknown`.
+- `oci_verify_outcome` evaluates explicit JSON Pointer assertions and reports
+  `verified`, `failed`, or `unknown`; exit code zero alone is no longer the
+  strongest available verification contract.
+
+This release adds an **Explain and Verify** layer. It does not claim universal
+compliance coverage, application-level connectivity, or autonomous root-cause
+proof.
+
+## Previous release: v0.7.1 — 2026-09-30
 
 - Invalid or incomplete mutation command paths now retain their actual
   preflight error instead of a misleading approval-token error.
@@ -565,17 +582,20 @@ python3 tests/test_protocol.py -v
 python3 tests/test_no_secrets.py
 ```
 
-The tests cover structured tool contracts, typed inventory, batch reads,
-mutation approval binding, read-only verification, sensitive-field redaction,
+The tests cover structured tool contracts, evidence provenance, Audit timeline
+boundaries, documented-check status, explicit outcome assertions, typed
+inventory, batch reads, mutation approval binding, sensitive-field redaction,
 blocked configuration overrides, bounded subprocess output, and misleading
 empty OCI CLI output. The Operations Console suite runs separately with
 `PYTHONPATH=console python3 -m unittest discover -s console/tests` after its
 pinned dependencies are installed.
 
 For an opt-in live read-only check of the installed CLI profile, run
-`python3 tests/live_v06_smoke.py`. It prints status and sanitized error codes,
-not tenancy payloads. A partial result means one or more OCI sources could not
-be read; it is not a clean health result.
+`python3 tests/live_v08_smoke.py` for the Explain and Verify tools or
+`python3 tests/live_v06_smoke.py` for the wider v0.6 service-family set. They
+print only status, counts, and sanitized errors—not tenancy payloads. A partial
+result means one or more OCI sources could not be read; it is not a clean
+health result.
 
 ## Contributing and security
 

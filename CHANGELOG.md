@@ -8,6 +8,38 @@ All notable changes to this project are documented here. The format follows
 
 No changes yet.
 
+## [0.8.0] - 2026-09-30
+
+### Added
+
+- Provenance envelopes on typed live OCI reads: source, UTC observation time,
+  configured profile, redacted command, and completeness.
+- `oci_change_timeline` for a bounded, optionally resource-filtered OCI Audit
+  timeline. It treats preceding changes as leads rather than proof of causation
+  and discloses its first-page coverage boundary.
+- `oci_documented_checks` with three reviewed Oracle-guided contracts for
+  public ingress, Cloud Guard enablement, and logging presence. Results are
+  `passed`, `review_required`, or `unknown`, with live evidence kept separate
+  from documented guidance.
+- `oci_verify_outcome` for deterministic read-after-write verification using
+  bounded JSON Pointer assertions. It distinguishes `verified`, `failed`, and
+  `unknown` outcomes.
+
+### Changed
+
+- Updated the OCI tenancy and documentation skills to route incident timelines,
+  maintained checks, and assertion-based verification without overstating
+  causality, compliance, or application health.
+
+### Known limitations
+
+- Audit timeline retrieval uses one CLI page because the installed Audit CLI
+  exposes pagination but no `--limit` option; the MCP applies its client limit
+  after redaction and never claims complete event coverage.
+- The documented check catalog is deliberately small and reviewed. It does not
+  replace Cloud Guard, Security Zones, compliance assessment, or workload-level
+  testing.
+
 ## [0.7.1] - 2026-09-30
 
 ### Fixed

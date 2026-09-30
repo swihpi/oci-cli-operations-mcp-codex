@@ -68,6 +68,26 @@ SERVICE_FAMILIES = {
     "databases": (("db_systems", ("db", "system", "list")),
                   ("autonomous_databases", ("db", "autonomous-database", "list"))),
 }
+DOCUMENTED_CHECKS = {
+    "public_ingress_review": {
+        "title": "Security-list internet ingress has explicit workload intent",
+        "command": ("network", "security-list", "list"),
+        "documentation": "https://docs.oracle.com/en-us/iaas/Content/Network/Concepts/securitylists.htm",
+        "guidance": "Review every 0.0.0.0/0 or ::/0 ingress rule against the workload's intended public surface.",
+    },
+    "cloud_guard_enabled": {
+        "title": "Cloud Guard is enabled",
+        "command": ("cloud-guard", "configuration", "get"),
+        "documentation": "https://docs.oracle.com/en-us/iaas/Content/cloud-guard/home.htm",
+        "guidance": "Confirm Cloud Guard configuration and separately review target and detector coverage.",
+    },
+    "logging_present": {
+        "title": "At least one log group is visible in scope",
+        "command": ("logging", "log-group", "list"),
+        "documentation": "https://docs.oracle.com/en-us/iaas/Content/Logging/Concepts/loggingoverview.htm",
+        "guidance": "A log group is only evidence of logging infrastructure; verify the required service logs separately.",
+    },
+}
 PENDING_APPROVALS = {}
 
 
@@ -104,9 +124,12 @@ TOOLS = [
     {"name": "oci_load_balancer_backend_health", "description": "Get the current OCI load balancer backend-set health for a known load balancer and backend set.", "inputSchema": schema({"load_balancer_id": {"type": "string"}, "backend_set_name": {"type": "string"}}, ["load_balancer_id", "backend_set_name"])},
     {"name": "oci_service_inventory", "description": "Inventory selected OCI product families with validated CLI list commands. This is compartment-scoped and reports each failed or unauthorized list separately.", "inputSchema": schema({"family": {"type": "string", "enum": sorted(SERVICE_FAMILIES)}, "compartment_id": {"type": "string"}}, ["family"])},
     {"name": "oci_work_request_status", "description": "Run a service-specific read-only OCI work-request get or list command and return any discovered work-request identifiers and status fields.", "inputSchema": schema({"arguments": {"type": "array", "items": {"type": "string"}}}, ["arguments"])},
+    {"name": "oci_change_timeline", "description": "Build a bounded read-only OCI Audit timeline for a compartment and optional resource. This identifies preceding changes but does not claim causation.", "inputSchema": schema({"start_time": {"type": "string"}, "end_time": {"type": "string"}, "compartment_id": {"type": "string"}, "resource_id": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}, "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 120}}, ["start_time", "end_time"])},
+    {"name": "oci_documented_checks", "description": "Run selected deterministic OCI checks tied to reviewed docs.oracle.com guidance. Results are passed, review_required, or unknown; they are not a universal compliance assessment.", "inputSchema": schema({"check_ids": {"type": "array", "minItems": 1, "maxItems": 3, "items": {"type": "string", "enum": sorted(DOCUMENTED_CHECKS)}}, "compartment_id": {"type": "string"}})},
     {"name": "oci_batch_read", "description": "Run up to eight independent read-only OCI CLI commands and return one structured result per command. Use it for any OCI service not covered by a typed inventory tool.", "inputSchema": schema({"commands": {"type": "array", "minItems": 1, "maxItems": 8, "items": {"type": "array", "items": {"type": "string"}}}}, ["commands"])},
     {"name": "oci_plan_mutation", "description": "Validate any OCI mutation command and return its exact approval token without executing it. Use before presenting a planned cloud change to the user.", "inputSchema": schema({"arguments": {"type": "array", "items": {"type": "string"}}}, ["arguments"])},
     {"name": "oci_verify_cli", "description": "Run a focused read-only OCI CLI verification command after a cloud mutation.", "inputSchema": schema({"arguments": {"type": "array", "items": {"type": "string"}}, "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 120}}, ["arguments"])},
+    {"name": "oci_verify_outcome", "description": "Run a focused read-only OCI CLI command and evaluate explicit JSON Pointer assertions. Returns verified, failed, or unknown rather than treating exit code zero as proof.", "inputSchema": schema({"arguments": {"type": "array", "items": {"type": "string"}}, "expectations": {"type": "array", "minItems": 1, "maxItems": 12, "items": {"type": "object"}}, "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 120}}, ["arguments", "expectations"])},
     {"name": "oci_execute_cli", "description": "Advanced fallback for any OCI CLI command. Read-only commands run immediately. Mutations return an approval token and run only when that exact token is supplied after the user approves.", "inputSchema": schema({"arguments": {"type": "array", "items": {"type": "string"}, "description": "OCI arguments only; omit the leading oci."}, "approval_token": {"type": "string", "description": "Token returned for this exact mutating command after explicit user approval."}, "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 120}}, ["arguments"])},
 ]
 
@@ -431,8 +454,16 @@ def text_result(payload, error=False):
     return {"content": [{"type": "text", "text": json.dumps(payload, indent=2)}], "isError": error}
 
 
-def run_typed(arguments):
-    return parsed_result(run_oci(arguments))
+def run_typed(arguments, timeout_seconds=DEFAULT_TIMEOUT_SECONDS):
+    result = parsed_result(run_oci(arguments, timeout_seconds))
+    result["evidence"] = {
+        "source": "live_oci_cli",
+        "observed_at": datetime.now(timezone.utc).isoformat(),
+        "profile": PROFILE,
+        "command": ["oci", *display_arguments(arguments)],
+        "complete": bool(result.get("ok")) and not result.get("truncated", False),
+    }
+    return result
 
 
 def validation_error(arguments, read_only=False):
@@ -541,6 +572,99 @@ def extract_items(result):
     if isinstance(value, dict):
         value = value.get("items", [])
     return value if isinstance(value, list) else []
+
+
+def payload_data(result):
+    value = result.get("data")
+    return value.get("data") if isinstance(value, dict) and "data" in value else value
+
+
+def documented_check_result(check_id, observation):
+    definition = DOCUMENTED_CHECKS[check_id]
+    base = {"check_id": check_id, "title": definition["title"],
+            "documentation": definition["documentation"], "guidance": definition["guidance"],
+            "evidence": observation.get("evidence")}
+    if not observation.get("ok"):
+        return base | {"status": "unknown", "reason": observation.get("error", "OCI evidence could not be read")}
+    data = payload_data(observation)
+    if check_id == "public_ingress_review":
+        broad = []
+        for security_list in extract_items(observation):
+            for rule in security_list.get("ingress-security-rules", []) if isinstance(security_list, dict) else []:
+                if rule.get("source") in {"0.0.0.0/0", "::/0"}:
+                    broad.append({"security_list_id": security_list.get("id"), "source": rule.get("source"),
+                                  "protocol": rule.get("protocol"), "tcp_options": rule.get("tcp-options")})
+        return base | {"status": "review_required" if broad else "passed",
+                       "reason": f"Found {len(broad)} internet-sourced ingress rule(s)." if broad else "No internet-sourced ingress rules were returned in this scope.",
+                       "findings": broad}
+    if check_id == "cloud_guard_enabled":
+        enabled = isinstance(data, dict) and str(data.get("status", "")).upper() == "ENABLED"
+        return base | {"status": "passed" if enabled else "review_required",
+                       "reason": "Cloud Guard reports ENABLED; target coverage still needs review." if enabled else "Cloud Guard was not confirmed ENABLED."}
+    rows = extract_items(observation)
+    return base | {"status": "passed" if rows else "review_required",
+                   "reason": f"Found {len(rows)} log group(s); individual service-log coverage still needs review." if rows else "No log groups were returned in this scope."}
+
+
+def audit_event_time(event):
+    if not isinstance(event, dict):
+        return ""
+    for key in ("event-time", "eventTime", "datetime", "time"):
+        if isinstance(event.get(key), str):
+            return event[key]
+    return ""
+
+
+def resolve_json_pointer(document, pointer):
+    if pointer == "":
+        return True, document
+    if not isinstance(pointer, str) or not pointer.startswith("/") or len(pointer) > 512:
+        return False, None
+    current = document
+    for raw in pointer[1:].split("/"):
+        token = raw.replace("~1", "/").replace("~0", "~")
+        if isinstance(current, dict) and token in current:
+            current = current[token]
+        elif isinstance(current, list) and token.isdigit() and int(token) < len(current):
+            current = current[int(token)]
+        else:
+            return False, None
+    return True, current
+
+
+def evaluate_expectations(document, expectations):
+    if len(json.dumps(expectations, separators=(",", ":")).encode("utf-8")) > 32_768:
+        raise ValueError("expectations exceed the 32 KiB verification limit")
+    allowed = {"pointer", "operator", "expected"}
+    checks = []
+    for index, expectation in enumerate(expectations):
+        if not isinstance(expectation, dict) or set(expectation) - allowed:
+            raise ValueError(f"expectations[{index}] must contain only pointer, operator, and expected")
+        pointer, operator = expectation.get("pointer"), expectation.get("operator")
+        if operator not in {"equals", "not_equals", "exists", "contains"}:
+            raise ValueError(f"expectations[{index}].operator is unsupported")
+        if not isinstance(pointer, str):
+            raise ValueError(f"expectations[{index}].pointer must be a JSON Pointer string")
+        if operator != "exists" and "expected" not in expectation:
+            raise ValueError(f"expectations[{index}].expected is required for {operator}")
+        found, actual = resolve_json_pointer(document, pointer)
+        expected = expectation.get("expected")
+        if operator == "exists":
+            passed = found
+        elif operator == "equals":
+            passed = found and actual == expected
+        elif operator == "not_equals":
+            passed = found and actual != expected
+        else:
+            passed = found and ((isinstance(actual, (list, str)) and expected in actual) or
+                                (isinstance(actual, dict) and expected in actual))
+        if not found or actual is None or isinstance(actual, (str, int, float, bool)):
+            reported_actual = actual if not isinstance(actual, str) or len(actual) <= 512 else actual[:512] + "…"
+        else:
+            reported_actual = {"type": type(actual).__name__, "size": len(actual)}
+        checks.append({"pointer": pointer, "operator": operator, "expected": expected,
+                       "found": found, "actual": reported_actual, "passed": passed})
+    return checks
 
 
 def anomaly_report(result, dimension, threshold_percent, minimum_delta):
@@ -769,6 +893,60 @@ def call_tool(name, arguments):
         if error or not any(token in {"work-request", "work-requests"} for token in path):
             return text_result({"ok": False, "error": error or "command path must target an OCI work-request get or list operation"}, True)
         result = run_typed(cli_args)
+    elif name == "oci_change_timeline":
+        start, end = checked_time_window(arguments.get("start_time"), arguments.get("end_time"))
+        if (end - start).total_seconds() > 7 * 24 * 3600:
+            return text_result({"ok": False, "error": "change timeline windows may not exceed seven days"}, True)
+        limit = arguments.get("limit", 100)
+        resource_id = arguments.get("resource_id")
+        if resource_id is not None and (not isinstance(resource_id, str) or not 1 <= len(resource_id) <= 512):
+            return text_result({"ok": False, "error": "resource_id must be 1-512 characters"}, True)
+        audit = run_typed(["audit", "event", "list", "--compartment-id", compartment,
+                           "--start-time", arguments["start_time"], "--end-time", arguments["end_time"]],
+                          arguments.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS))
+        raw_events = extract_items(audit) if audit["ok"] else []
+        events = raw_events
+        if resource_id:
+            events = [event for event in events if resource_id in json.dumps(event, sort_keys=True)]
+        events.sort(key=audit_event_time)
+        matching_count = len(events)
+        events = events[:limit]
+        result = {"ok": audit["ok"], "events": events, "event_count": len(events),
+                  "scope": {"compartment_id": compartment, "resource_id": resource_id,
+                            "start_time": arguments["start_time"], "end_time": arguments["end_time"]},
+                  "coverage": {"client_limit": limit, "matching_events_on_returned_page": matching_count,
+                               "possibly_more": matching_count > limit, "first_cli_page_only": True,
+                               "complete": None,
+                               "message": "The installed Audit CLI has no --limit option; this tool reads one CLI page and applies the client limit after redaction."},
+                  "evidence": audit.get("evidence"),
+                  "interpretation": "Events are preceding changes and diagnostic leads; temporal proximity does not establish causation."}
+        if not audit["ok"]:
+            result["error"] = audit.get("error", "OCI Audit events could not be read")
+            result["audit"] = audit
+    elif name == "oci_documented_checks":
+        selected = arguments.get("check_ids", list(DOCUMENTED_CHECKS))
+        if not isinstance(selected, list) or not selected or len(selected) > len(DOCUMENTED_CHECKS) or any(item not in DOCUMENTED_CHECKS for item in selected):
+            return text_result({"ok": False, "error": "check_ids must select one or more supported documented checks"}, True)
+        commands = {}
+        for check_id in selected:
+            definition = DOCUMENTED_CHECKS[check_id]
+            target = tenancy if check_id == "cloud_guard_enabled" else compartment
+            command = [*definition["command"], "--compartment-id", target]
+            if definition["command"][-1] == "list":
+                command.append("--all")
+            commands[check_id] = command
+        with ThreadPoolExecutor(max_workers=min(3, len(commands))) as pool:
+            futures = {check_id: pool.submit(run_typed, command) for check_id, command in commands.items()}
+            observations = {check_id: future.result() for check_id, future in futures.items()}
+        checks = [documented_check_result(check_id, observations[check_id]) for check_id in selected]
+        counts = {status: sum(check["status"] == status for check in checks)
+                  for status in ("passed", "review_required", "unknown")}
+        result = {"ok": counts["unknown"] == 0, "complete": counts["unknown"] == 0,
+                  "partial": counts["unknown"] > 0, "checks": checks, "summary": counts,
+                  "scope": {"compartment_id": compartment, "tenancy_check_scope": tenancy},
+                  "reviewed_at": "2026-09-30",
+                  "limitations": ["This is a small reviewed check set, not a universal security or compliance certification.",
+                                  "A passed configuration check does not prove end-to-end workload health."]}
     elif name == "oci_scope_discovery":
         commands = {
             "regions": ["iam", "region", "list"],
@@ -803,6 +981,22 @@ def call_tool(name, arguments):
         if error:
             return text_result({"ok": False, "error": error}, True)
         result = parsed_result(run_oci(cli_args, arguments.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)))
+    elif name == "oci_verify_outcome":
+        cli_args = arguments.get("arguments")
+        error = validation_error(cli_args, read_only=True)
+        if error:
+            return text_result({"ok": False, "verification_status": "unknown", "error": error}, True)
+        observation = run_typed(cli_args, arguments.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS))
+        if not observation["ok"]:
+            result = {"ok": False, "verification_status": "unknown", "observation": observation,
+                      "error": "Verification evidence could not be read; the requested outcome remains unknown."}
+        else:
+            checks = evaluate_expectations(observation.get("data"), arguments.get("expectations"))
+            verified = all(check["passed"] for check in checks)
+            result = {"ok": verified, "verification_status": "verified" if verified else "failed",
+                      "checks": checks, "observation": observation,
+                      "message": "All explicit outcome assertions passed." if verified else "One or more explicit outcome assertions failed."}
+        return text_result(result, not result["ok"])
     elif name == "oci_execute_cli":
         cli_args = arguments.get("arguments")
         error = validation_error(cli_args)
@@ -827,7 +1021,7 @@ def call_tool(name, arguments):
 def respond(message):
     method, request_id = message.get("method"), message.get("id")
     if method == "initialize":
-        return {"jsonrpc": "2.0", "id": request_id, "result": {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}, "serverInfo": {"name": "oci-tenancy", "version": "0.7.1"}}}
+        return {"jsonrpc": "2.0", "id": request_id, "result": {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}, "serverInfo": {"name": "oci-tenancy", "version": "0.8.0"}}}
     if method == "tools/list":
         return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": TOOLS}}
     if method == "tools/call":

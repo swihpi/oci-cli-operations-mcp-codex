@@ -56,6 +56,19 @@ elif "resource-availability" in args:
     print(json.dumps({"data": {"available": 3, "used": 1}}))
 elif "work-request" in args:
     print(json.dumps({"data": {"id": "wr-test", "opc-work-request-id": "wr-test", "status": "SUCCEEDED"}}))
+elif "audit" in args and "event" in args and "list" in args:
+    print(json.dumps({"data": [
+        {"event-time": "2026-09-30T08:00:00Z", "event-name": "UpdateInstance", "resource-id": "instance-test"},
+        {"event-time": "2026-09-30T09:00:00Z", "event-name": "UpdateRouteTable", "resource-id": "route-test"}
+    ]}))
+elif "security-list" in args:
+    print(json.dumps({"data": [{"id": "sl-test", "ingress-security-rules": [
+        {"source": "0.0.0.0/0", "protocol": "6", "tcp-options": {"destination-port-range": {"min": 443, "max": 443}}}
+    ]}]}))
+elif "cloud-guard" in args and "configuration" in args:
+    print(json.dumps({"data": {"status": "ENABLED"}}))
+elif "logging" in args and "log-group" in args:
+    print(json.dumps({"data": [{"id": "log-group-test", "display-name": "operations"}]}))
 elif "instance" in args:
     print(json.dumps([{"name": "test-instance", "state": "RUNNING"}]))
 elif "vcn" in args:

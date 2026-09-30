@@ -37,8 +37,14 @@ the same task; do not repeatedly fetch the same page.
 5. For a mutation, use `oci_plan_mutation`, explain scope and cost/availability/
    security effect, wait for explicit approval, then execute through
    `oci_execute_cli` using the returned approval token.
-6. Use `oci_verify_cli` to confirm the resulting state and cite the official
-   source that supports the configuration decision.
+6. Use `oci_verify_outcome` with explicit assertions when the intended state is
+   machine-testable. Otherwise use `oci_verify_cli`, label the interpretation,
+   and cite the official source that supports the configuration decision.
+
+For the MCP's maintained deterministic checks, use `oci_documented_checks` and
+preserve each check's source, review date, evidence timestamp, scope, and
+limitations. A changed Oracle page is a reason to review a check contract; it
+does not authorize automatically rewriting or executing infrastructure rules.
 
 ## Health-check routing
 
