@@ -12,7 +12,17 @@ This project is not affiliated with, endorsed by, or supported by Oracle.
 Oracle Cloud Infrastructure, OCI, and related marks belong to Oracle and/or
 its affiliates.
 
-## What's new in v0.7.0 — 2026-09-30
+## What's new in v0.7.1 — 2026-09-30
+
+- Invalid or incomplete mutation command paths now retain their actual
+  preflight error instead of a misleading approval-token error.
+- Mutations interrupted by output overflow now report an unknown outcome,
+  just like timeouts. Verify the resource before retrying; approval remains
+  single-use.
+- Both regression tests failed before the fixes and passed afterward. These
+  are deterministic fake-CLI checks, not live cloud mutation tests.
+
+## Previous release: v0.7.0 — 2026-09-30
 
 - Ask `oci_cli_help` for the command tree and options actually installed on
   your machine before using an unfamiliar OCI service. Mutation plans now
