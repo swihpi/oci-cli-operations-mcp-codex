@@ -35,6 +35,14 @@ incomplete and must be reported. Use `oci_resource_search` for tenancy-wide
 resource discovery and `oci_work_request_status` for service-specific
 asynchronous operation evidence.
 
+For incident review, use `oci_change_timeline` with an explicit window of no
+more than seven days and, when known, a resource OCID. It returns one bounded
+Audit page and applies its result limit after redaction. Treat nearby changes as
+diagnostic leads, never proof of causation. Use `oci_documented_checks` for the
+small reviewed set of deterministic checks tied to current Oracle guidance;
+read [documented check contracts](references/documented-checks.md) before
+interpreting or extending them.
+
 For native recommendations and findings, use `oci_native_intelligence` to
 gather Cloud Advisor, Cloud Guard, host-scan, and OS Management Hub observations.
 Use `oci_network_diagnostics` for DNS, DRG, IPSec, load-balancer, and log-group
@@ -81,8 +89,11 @@ read-only question about any OCI service without a dedicated tool, use
 cross-product routing mechanism for Containers, DevOps, Resource Manager,
 database services, AI, analytics, integration, security, observability,
 governance, edge, hybrid, and marketplace services. Use `oci_plan_mutation`
-before explaining or seeking approval for a change, and `oci_verify_cli` for
-the focused read-after-write check.
+before explaining or seeking approval for a change. Prefer
+`oci_verify_outcome` when success can be expressed as explicit JSON Pointer
+assertions; it reports verified, failed, or unknown. Use `oci_verify_cli` only
+when the model must interpret a focused read itself, and do not describe that
+read as deterministic verification.
 
 For any operation that can create, update, move, terminate, delete, rotate, expose, or change access to a cloud resource, first present the exact OCI CLI command, affected resource/compartment, expected effect, and any meaningful cost, availability, or security impact. Execute it only after the user explicitly approves that exact action, then call `oci_execute_cli` again with the unchanged arguments and its returned `approval_token`. Approval tokens are process-local, exact-command-bound, single-use, and expire after five minutes.
 

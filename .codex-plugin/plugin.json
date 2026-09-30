@@ -1,6 +1,6 @@
 {
   "name": "oci-tenancy",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "A Codex-first, local OCI CLI MCP for safe operations and Oracle documentation-guided decisions.",
   "author": {
     "name": "OCI CLI Operations MCP contributors"
@@ -8,8 +8,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "OCI CLI Operations MCP (Codex)",
-    "shortDescription": "Operate OCI with safe CLI tools, cost intelligence, health checks, and Oracle documentation guidance.",
-    "longDescription": "A Codex-first OCI CLI MCP with cost and usage analysis, operational health bundles, scoped discovery, single-use approval-gated mutations, verification, and Oracle-documentation-guided operations.",
+    "shortDescription": "Operate OCI with evidence, change timelines, verified outcomes, and Oracle documentation guidance.",
+    "longDescription": "A Codex-first OCI CLI MCP with live evidence provenance, Audit change timelines, reviewed Oracle-guided checks, explicit outcome assertions, cost analysis, health bundles, and approval-gated mutations.",
     "developerName": "OCI CLI Operations MCP contributors",
     "category": "Developer Tools",
     "capabilities": [

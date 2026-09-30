@@ -49,12 +49,13 @@ class ProtocolTests(unittest.TestCase):
         return json.loads(result["content"][0]["text"])
 
     def test_initialization_and_tool_contract(self):
-        self.assertEqual(self.request("initialize")["result"]["serverInfo"]["version"], "0.7.1")
+        self.assertEqual(self.request("initialize")["result"]["serverInfo"]["version"], "0.8.0")
         tools = self.request("tools/list")["result"]["tools"]
         names = {tool["name"] for tool in tools}
         self.assertTrue({"oci_cli_help", "oci_tenancy_summary", "oci_compute_inventory", "oci_scope_discovery", "oci_batch_read", "oci_plan_mutation", "oci_verify_cli", "oci_execute_cli"} <= names)
         self.assertTrue({"oci_cost_usage_summary", "oci_cost_usage_by_dimension", "oci_cost_anomaly_scan", "oci_budget_inventory", "oci_limits_overview", "oci_resource_availability", "oci_resource_search", "oci_security_posture", "oci_network_health", "oci_observability_inventory", "oci_governance_inventory", "oci_work_request_status"} <= names)
         self.assertTrue({"oci_native_intelligence", "oci_network_diagnostics", "oci_identity_evidence", "oci_recovery_evidence", "oci_metric_query", "oci_load_balancer_backend_health", "oci_service_inventory"} <= names)
+        self.assertTrue({"oci_change_timeline", "oci_documented_checks", "oci_verify_outcome"} <= names)
         self.assertTrue(all(tool["inputSchema"].get("additionalProperties") is False for tool in tools))
 
     def test_server_enforces_tool_contract_not_only_advertises_it(self):
@@ -74,6 +75,8 @@ class ProtocolTests(unittest.TestCase):
             self.assertTrue(payload["ok"], tool)
             self.assertIn("data", payload, tool)
             self.assertIn("duration_ms", payload, tool)
+            self.assertEqual(payload["evidence"]["source"], "live_oci_cli")
+            self.assertTrue(payload["evidence"]["complete"])
 
     def test_read_only_fallback_runs_and_parses_json(self):
         payload = self.payload(self.call("oci_execute_cli", {"arguments": ["compute", "instance", "list", "--compartment-id", "x"]}))
@@ -291,6 +294,41 @@ class ProtocolTests(unittest.TestCase):
         self.assertTrue(verify["ok"])
         rejected = self.payload(self.call("oci_verify_cli", {"arguments": ["compute", "instance", "action", "--instance-id", "x", "--action", "STOP"]}))
         self.assertFalse(rejected["ok"])
+
+    def test_explicit_outcome_verification_passes_fails_and_validates(self):
+        arguments = ["compute", "instance", "get", "--instance-id", "instance-test"]
+        verified = self.payload(self.call("oci_verify_outcome", {"arguments": arguments,
+            "expectations": [{"pointer": "/0/state", "operator": "equals", "expected": "RUNNING"}]}))
+        self.assertTrue(verified["ok"])
+        self.assertEqual(verified["verification_status"], "verified")
+        failed = self.payload(self.call("oci_verify_outcome", {"arguments": arguments,
+            "expectations": [{"pointer": "/0/state", "operator": "equals", "expected": "STOPPED"}]}))
+        self.assertFalse(failed["ok"])
+        self.assertEqual(failed["verification_status"], "failed")
+        invalid = self.payload(self.call("oci_verify_outcome", {"arguments": arguments,
+            "expectations": [{"pointer": "/0/state", "operator": "regex", "expected": ".*"}]}))
+        self.assertFalse(invalid["ok"])
+
+    def test_change_timeline_is_bounded_filtered_and_non_causal(self):
+        timeline = self.payload(self.call("oci_change_timeline", {
+            "start_time": "2026-09-30T07:00:00Z", "end_time": "2026-09-30T10:00:00Z",
+            "resource_id": "instance-test", "limit": 10}))
+        self.assertTrue(timeline["ok"])
+        self.assertEqual(timeline["event_count"], 1)
+        self.assertEqual(timeline["events"][0]["event-name"], "UpdateInstance")
+        self.assertIn("does not establish causation", timeline["interpretation"])
+        too_wide = self.payload(self.call("oci_change_timeline", {
+            "start_time": "2026-09-01T00:00:00Z", "end_time": "2026-09-30T00:00:00Z"}))
+        self.assertFalse(too_wide["ok"])
+
+    def test_documented_checks_keep_guidance_and_evidence_separate(self):
+        result = self.payload(self.call("oci_documented_checks"))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["summary"], {"passed": 2, "review_required": 1, "unknown": 0})
+        public = next(check for check in result["checks"] if check["check_id"] == "public_ingress_review")
+        self.assertEqual(public["status"], "review_required")
+        self.assertTrue(public["documentation"].startswith("https://docs.oracle.com/"))
+        self.assertEqual(public["evidence"]["source"], "live_oci_cli")
 
     def test_cost_usage_budget_limits_and_anomaly_tools(self):
         window = {"time_usage_started": "2026-09-01", "time_usage_ended": "2026-09-03", "granularity": "DAILY"}
