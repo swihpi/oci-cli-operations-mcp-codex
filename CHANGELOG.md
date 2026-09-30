@@ -8,6 +8,18 @@ All notable changes to this project are documented here. The format follows
 
 No changes yet.
 
+## [0.7.1] - 2026-09-30
+
+### Fixed
+
+- Preserve command-path preflight failures in `oci_execute_cli` rather than
+  replacing them with a misleading approval-token error.
+- Mark interrupted mutations as outcome-unknown on output overflow as well as
+  timeout. A killed CLI process does not prove the cloud operation was cancelled;
+  verify resource state before considering another action. Approval remains single-use.
+- Added regression tests for both cases, including read-only overflow and
+  rejection of approval replay after a truncated mutation.
+
 ## [0.7.0] - 2026-09-30
 
 ### Added

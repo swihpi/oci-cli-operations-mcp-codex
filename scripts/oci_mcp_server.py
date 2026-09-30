@@ -208,7 +208,7 @@ def run_oci(arguments, timeout_seconds=DEFAULT_TIMEOUT_SECONDS, json_output=True
                 "stderr": stderr, "truncated": exceeded,
                 "error": "OCI CLI timed out" if timed_out else "OCI CLI output exceeded the configured byte limit",
                 "oci_error": normalized_oci_error(stderr, arguments),
-                "outcome_unknown": timed_out and not is_read_only(arguments),
+                "outcome_unknown": not is_read_only(arguments),
                 "duration_ms": round((time.monotonic() - started) * 1000)}
     if not json_output:
         response = {"ok": process.returncode == 0 and bool(stdout.strip()), "command": shown,
@@ -811,6 +811,8 @@ def call_tool(name, arguments):
         if not is_read_only(cli_args):
             if not consume_approval(arguments.get("approval_token"), cli_args):
                 plan = mutation_plan(cli_args)
+                if not plan["ok"]:
+                    return text_result(plan, True)
                 plan["ok"] = False
                 plan["error"] = "Missing, expired, already-used, or command-mismatched approval token"
                 return text_result(plan, True)
@@ -825,7 +827,7 @@ def call_tool(name, arguments):
 def respond(message):
     method, request_id = message.get("method"), message.get("id")
     if method == "initialize":
-        return {"jsonrpc": "2.0", "id": request_id, "result": {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}, "serverInfo": {"name": "oci-tenancy", "version": "0.7.0"}}}
+        return {"jsonrpc": "2.0", "id": request_id, "result": {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}, "serverInfo": {"name": "oci-tenancy", "version": "0.7.1"}}}
     if method == "tools/list":
         return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": TOOLS}}
     if method == "tools/call":

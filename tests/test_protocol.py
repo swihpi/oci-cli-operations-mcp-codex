@@ -49,7 +49,7 @@ class ProtocolTests(unittest.TestCase):
         return json.loads(result["content"][0]["text"])
 
     def test_initialization_and_tool_contract(self):
-        self.assertEqual(self.request("initialize")["result"]["serverInfo"]["version"], "0.7.0")
+        self.assertEqual(self.request("initialize")["result"]["serverInfo"]["version"], "0.7.1")
         tools = self.request("tools/list")["result"]["tools"]
         names = {tool["name"] for tool in tools}
         self.assertTrue({"oci_cli_help", "oci_tenancy_summary", "oci_compute_inventory", "oci_scope_discovery", "oci_batch_read", "oci_plan_mutation", "oci_verify_cli", "oci_execute_cli"} <= names)
@@ -105,6 +105,15 @@ class ProtocolTests(unittest.TestCase):
     def test_sensitive_response_fields_are_redacted(self):
         payload = self.payload(self.call("oci_execute_cli", {"arguments": ["example", "resource", "list"]}))
         self.assertEqual(payload["data"]["metadata"]["ssh_authorized_keys"], "[REDACTED]")
+
+    def test_execute_preserves_failed_preflight_reason(self):
+        for command in (["definitely-not-a-service", "create"],
+                        ["compute", "instance"]):
+            result = self.payload(self.call("oci_execute_cli", {"arguments": command}))
+            self.assertFalse(result["ok"])
+            self.assertNotIn("approval_token", result)
+            self.assertIn("complete operation path", result["error"])
+            self.assertIn("preflight", result)
 
     def test_mutation_requires_exact_token(self):
         first = self.payload(self.call("oci_execute_cli", {"arguments": ["compute", "instance", "action", "--instance-id", "x", "--action", "START"]}))
@@ -252,7 +261,21 @@ class ProtocolTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertTrue(result["truncated"])
         self.assertIn("byte limit", result["error"])
+        self.assertFalse(result["outcome_unknown"])
         self.assertLessEqual(len(result["stdout"].encode("utf-8")), 1_000_000)
+
+    def test_truncated_mutation_has_unknown_outcome_and_consumed_approval(self):
+        command = ["compute", "instance", "action", "--instance-id", "x",
+                   "--action", "STOP", "--large-output"]
+        plan = self.payload(self.call("oci_plan_mutation", {"arguments": command}))
+        request = {"arguments": command, "approval_token": plan["approval_token"]}
+        result = self.payload(self.call("oci_execute_cli", request))
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["truncated"])
+        self.assertTrue(result["outcome_unknown"])
+        replay = self.payload(self.call("oci_execute_cli", request))
+        self.assertFalse(replay["ok"])
+        self.assertIn("already-used", replay["error"])
 
     def test_service_error_is_normalized_without_retrying_mutation(self):
         failure = self.payload(self.call("oci_execute_cli", {"arguments": ["compute", "instance", "get", "--service-error"]}))
